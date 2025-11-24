@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-from src.unet_models import ResNet50UNet
+from bidr_relight.unet_models import ResNet50UNet
 
 ####################################################################################################################################################################
 # CLASSES

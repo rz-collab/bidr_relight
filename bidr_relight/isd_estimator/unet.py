@@ -3,29 +3,6 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet50
 
-# ============================================================================================================
-# Mock ISD Estimator
-# ============================================================================================================
-
-class MockISDModel(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3):
-        super().__init__()
-
-        # A physically plausible constant ISD direction for outdoor afternoon daylight
-        isd = torch.tensor([0.58, 0.56, 0.59], dtype=torch.float32)
-        isd = isd / torch.norm(isd)  # normalize to unit vector
-
-        # Register as buffer so it moves to CUDA with the model but is not updated
-        self.register_buffer("isd_vec", isd.view(1, 3, 1, 1))
-
-    def forward(self, x):
-        """
-        x: (B, 3, H, W)
-        Returns (B, 3, H, W) constant ISD map
-        """
-        B, _, H, W = x.shape
-        return self.isd_vec.expand(B, 3, H, W)
-
 
 # ============================================================================================================
 # ResNet UNet
@@ -38,7 +15,7 @@ class SEBlock(nn.Module):
             nn.Conv2d(channels, channels // reduction, kernel_size=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels // reduction, channels, kernel_size=1),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -48,11 +25,12 @@ class SEBlock(nn.Module):
 
 ################################################################################################################################################################
 
+
 class UpBlock(nn.Module):
     def __init__(self, in_c, skip_c, out_c, se_block=False, dropout=0.0):
         super().__init__()
         self.se_block = se_block
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
 
         self.conv = nn.Sequential(
             nn.Conv2d(in_c + skip_c, out_c, kernel_size=3, padding=1),
@@ -61,7 +39,7 @@ class UpBlock(nn.Module):
             nn.Dropout2d(p=dropout),
             nn.Conv2d(out_c, out_c, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_c),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
         )
         if se_block:
             self.se = SEBlock(out_c)
@@ -78,8 +56,17 @@ class UpBlock(nn.Module):
 
 ################################################################################################################################################################
 
+
 class ResNet50UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, pretrained=True, checkpoint=None, se_block=True, dropout=0.0):
+    def __init__(
+        self,
+        in_channels=3,
+        out_channels=3,
+        pretrained=True,
+        checkpoint=None,
+        se_block=True,
+        dropout=0.0,
+    ):
         super().__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.info(
@@ -92,7 +79,9 @@ class ResNet50UNet(nn.Module):
             self.logger.info(f"Loading ResNet50 weights from checkpoint: {checkpoint}")
             resnet = resnet50(weights=None)
             state_dict = torch.load(checkpoint, map_location="cpu")
-            resnet.load_state_dict(state_dict.get("state_dict", state_dict), strict=False)
+            resnet.load_state_dict(
+                state_dict.get("state_dict", state_dict), strict=False
+            )
         else:
             weights = None
             resnet = resnet50(weights=weights)
@@ -101,7 +90,7 @@ class ResNet50UNet(nn.Module):
         self.in_conv = nn.Sequential(
             resnet.conv1,  # 64 x H/2
             resnet.bn1,
-            resnet.relu
+            resnet.relu,
         )
         self.maxpool = resnet.maxpool  # H/4
         self.enc1 = resnet.layer1  # 256 x H/4
@@ -114,29 +103,39 @@ class ResNet50UNet(nn.Module):
         self.up3 = UpBlock(512, 512, 256, se_block=se_block, dropout=dropout)
         self.up2 = UpBlock(256, 256, 128, se_block=se_block, dropout=dropout)
         self.up1 = UpBlock(128, 64, 64, se_block=se_block, dropout=dropout)
-        self.up0 = UpBlock(64, 0, 32, se_block=se_block, dropout=dropout)  # No skip connection here
+        self.up0 = UpBlock(
+            64, 0, 32, se_block=se_block, dropout=dropout
+        )  # No skip connection here
         self.final_conv = nn.Conv2d(32, out_channels, kernel_size=1)
 
         # Optionally re-train input conv to accept different channels
         if in_channels != 3:
-            self.in_conv[0] = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            self.in_conv[0] = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+            )
         self._log_parameter_count()
 
     def _log_parameter_count(self):
         """
         Logs total and trainable parameters in the model, summarized by top-level modules.
         """
-        self.logger.info(f"{self.__class__.__name__} Parameter Summary (Top-Level Modules):")
+        self.logger.info(
+            f"{self.__class__.__name__} Parameter Summary (Top-Level Modules):"
+        )
         self.logger.info("-" * 80)
         total_params = 0
         trainable_params = 0
 
         for name, module in self.named_children():  # Only top-level children
             mod_total = sum(p.numel() for p in module.parameters())
-            mod_trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+            mod_trainable = sum(
+                p.numel() for p in module.parameters() if p.requires_grad
+            )
             total_params += mod_total
             trainable_params += mod_trainable
-            self.logger.info(f"{name:<25} | Total: {mod_total:<20} | Trainable: {mod_trainable:,}")
+            self.logger.info(
+                f"{name:<25} | Total: {mod_total:<20} | Trainable: {mod_trainable:,}"
+            )
 
         self.logger.info("-" * 80)
         self.logger.info(f"Total Parameters:     {total_params:,}")

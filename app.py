@@ -29,27 +29,33 @@ def rotate_3d(points, angles, center):
     # Rotation matrices for each axis
     # Rotation around R axis (G-B plane)
     angle_r = angles[0]
-    Rr = np.array([
-        [1, 0, 0],
-        [0, np.cos(angle_r), -np.sin(angle_r)],
-        [0, np.sin(angle_r), np.cos(angle_r)]
-    ])
+    Rr = np.array(
+        [
+            [1, 0, 0],
+            [0, np.cos(angle_r), -np.sin(angle_r)],
+            [0, np.sin(angle_r), np.cos(angle_r)],
+        ]
+    )
 
     # Rotation around G axis (R-B plane)
     angle_g = angles[1]
-    Rg = np.array([
-        [np.cos(angle_g), 0, np.sin(angle_g)],
-        [0, 1, 0],
-        [-np.sin(angle_g), 0, np.cos(angle_g)]
-    ])
+    Rg = np.array(
+        [
+            [np.cos(angle_g), 0, np.sin(angle_g)],
+            [0, 1, 0],
+            [-np.sin(angle_g), 0, np.cos(angle_g)],
+        ]
+    )
 
     # Rotation around B axis (R-G plane)
     angle_b = angles[2]
-    Rb = np.array([
-        [np.cos(angle_b), -np.sin(angle_b), 0],
-        [np.sin(angle_b), np.cos(angle_b), 0],
-        [0, 0, 1]
-    ])
+    Rb = np.array(
+        [
+            [np.cos(angle_b), -np.sin(angle_b), 0],
+            [np.sin(angle_b), np.cos(angle_b), 0],
+            [0, 0, 1],
+        ]
+    )
 
     # Apply rotations
     rotated = centered @ Rr.T @ Rg.T @ Rb.T
@@ -67,32 +73,53 @@ def create_logrgb_plots(content_log, style_log):
     style_sample = style_log.reshape(-1, 3)[::100]
 
     # logR vs logG
-    axes[0][0].scatter(content_sample[:, 0], content_sample[:, 1],
-                    c='blue', alpha=0.3, s=1, label='Content')
-    axes[0][0].scatter(style_sample[:, 0], style_sample[:, 1],
-                    c='red', alpha=0.3, s=1, label='Style')
-    axes[0][0].set_xlabel('log R', fontdict={'fontsize': 20})
-    axes[0][0].set_ylabel('log G', fontdict={'fontsize': 20})
+    axes[0][0].scatter(
+        content_sample[:, 0],
+        content_sample[:, 1],
+        c="blue",
+        alpha=0.3,
+        s=1,
+        label="Content",
+    )
+    axes[0][0].scatter(
+        style_sample[:, 0], style_sample[:, 1], c="red", alpha=0.3, s=1, label="Style"
+    )
+    axes[0][0].set_xlabel("log R", fontdict={"fontsize": 20})
+    axes[0][0].set_ylabel("log G", fontdict={"fontsize": 20})
     axes[0][0].legend()
     axes[0][0].grid(True, alpha=0.3)
 
     # logR vs logB
-    axes[0][1].scatter(content_sample[:, 0], content_sample[:, 2],
-                    c='blue', alpha=0.3, s=1, label='Content')
-    axes[0][1].scatter(style_sample[:, 0], style_sample[:, 2],
-                    c='red', alpha=0.3, s=1, label='Style')
-    axes[0][1].set_xlabel('log R', fontdict={'fontsize': 20})
-    axes[0][1].set_ylabel('log B', fontdict={'fontsize': 20})
+    axes[0][1].scatter(
+        content_sample[:, 0],
+        content_sample[:, 2],
+        c="blue",
+        alpha=0.3,
+        s=1,
+        label="Content",
+    )
+    axes[0][1].scatter(
+        style_sample[:, 0], style_sample[:, 2], c="red", alpha=0.3, s=1, label="Style"
+    )
+    axes[0][1].set_xlabel("log R", fontdict={"fontsize": 20})
+    axes[0][1].set_ylabel("log B", fontdict={"fontsize": 20})
     axes[0][1].legend()
     axes[0][1].grid(True, alpha=0.3)
 
     # logG vs logB
-    axes[1][0].scatter(content_sample[:, 1], content_sample[:, 2],
-                    c='blue', alpha=0.3, s=1, label='Content')
-    axes[1][0].scatter(style_sample[:, 1], style_sample[:, 2],
-                    c='red', alpha=0.3, s=1, label='Style')
-    axes[1][0].set_xlabel('log G', fontdict={'fontsize': 20})
-    axes[1][0].set_ylabel('log B', fontdict={'fontsize': 20})
+    axes[1][0].scatter(
+        content_sample[:, 1],
+        content_sample[:, 2],
+        c="blue",
+        alpha=0.3,
+        s=1,
+        label="Content",
+    )
+    axes[1][0].scatter(
+        style_sample[:, 1], style_sample[:, 2], c="red", alpha=0.3, s=1, label="Style"
+    )
+    axes[1][0].set_xlabel("log G", fontdict={"fontsize": 20})
+    axes[1][0].set_ylabel("log B", fontdict={"fontsize": 20})
     axes[1][0].legend()
     axes[1][0].grid(True, alpha=0.3)
 
@@ -101,14 +128,15 @@ def create_logrgb_plots(content_log, style_log):
     plt.tight_layout()
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(buf, format="png", dpi=100, bbox_inches="tight")
     buf.seek(0)
     plt.close()
     return Image.open(buf)
 
 
-def apply_transform(content_img, style_img, shift_r, shift_g, shift_b,
-                    rot_r, rot_g, rot_b):
+def apply_transform(
+    content_img, style_img, shift_r, shift_g, shift_b, rot_r, rot_g, rot_b
+):
     """Apply logRGB translation and rotation to content image"""
     if content_img is None:
         return None, None, None
@@ -174,9 +202,15 @@ with gr.Blocks() as demo:
 
     gr.Markdown("### Rotation (around darkest pixel)")
     with gr.Row():
-        rot_r = gr.Slider(-180, 180, value=0, step=1, label="Rotation around R axis (degrees)")
-        rot_g = gr.Slider(-180, 180, value=0, step=1, label="Rotation around G axis (degrees)")
-        rot_b = gr.Slider(-180, 180, value=0, step=1, label="Rotation around B axis (degrees)")
+        rot_r = gr.Slider(
+            -180, 180, value=0, step=1, label="Rotation around R axis (degrees)"
+        )
+        rot_g = gr.Slider(
+            -180, 180, value=0, step=1, label="Rotation around G axis (degrees)"
+        )
+        rot_b = gr.Slider(
+            -180, 180, value=0, step=1, label="Rotation around B axis (degrees)"
+        )
 
     with gr.Row():
         reset_btn = gr.Button("Reset Transforms")
@@ -185,7 +219,16 @@ with gr.Blocks() as demo:
     log_state = gr.State()
 
     # Update on any change
-    inputs = [content_input, style_input, shift_r, shift_g, shift_b, rot_r, rot_g, rot_b]
+    inputs = [
+        content_input,
+        style_input,
+        shift_r,
+        shift_g,
+        shift_b,
+        rot_r,
+        rot_g,
+        rot_b,
+    ]
     outputs = [output_img, logrgb_plot, log_state]
 
     content_input.change(apply_transform, inputs, outputs)
@@ -197,6 +240,8 @@ with gr.Blocks() as demo:
     rot_g.change(apply_transform, inputs, outputs)
     rot_b.change(apply_transform, inputs, outputs)
 
-    reset_btn.click(reset_transforms, None, [shift_r, shift_g, shift_b, rot_r, rot_g, rot_b])
+    reset_btn.click(
+        reset_transforms, None, [shift_r, shift_g, shift_b, rot_r, rot_g, rot_b]
+    )
 
 demo.launch(share=True)
