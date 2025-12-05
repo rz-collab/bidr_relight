@@ -298,3 +298,196 @@ def plot_image_rgb_logrgb(norm_content_img, norm_style_img):
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_log_chroma_plane_pre_clustering(log_chroma_content, isd_map, content_img, content_bit_depth):
+    """
+    Visualize the 2D log chromaticity plane before clustering.
+    Shows pixel distribution colored by their original RGB values.
+    
+    Args:
+        log_chroma_content: (H, W, 3) log chromaticity projection
+        isd_map: (H, W, 3) ISD direction vectors
+        content_img: (H, W, 3) original linear RGB image
+        content_bit_depth: bit depth for normalization
+    """
+    H, W, _ = log_chroma_content.shape
+    
+    # Flatten spatial dimensions
+    log_chroma_flat = log_chroma_content.reshape(H * W, 3)
+    
+    # Sample for visualization (too many points slow down plotting)
+    num_samples = 200000
+    if len(log_chroma_flat) > num_samples:
+        indices = np.random.choice(len(log_chroma_flat), num_samples, replace=False)
+        sampled_chroma = log_chroma_flat[indices]
+        
+        # Get corresponding RGB colors for those pixels
+        content_flat = content_img.reshape(H * W, 3)
+        sampled_colors = content_flat[indices]
+    else:
+        sampled_chroma = log_chroma_flat
+        sampled_colors = content_img.reshape(H * W, 3)
+    
+    # Normalize colors to [0, 1] for display
+    norm_colors = sampled_colors / (2**content_bit_depth - 1)
+    norm_colors = np.clip(norm_colors, 0, 1)
+    
+    # Project onto 2D plane perpendicular to mean ISD
+    mean_isd = isd_map.reshape(H * W, 3).mean(axis=0)
+    mean_isd = mean_isd / np.linalg.norm(mean_isd)
+    
+    # Create orthonormal basis for the plane
+    # Pick arbitrary vector not parallel to ISD
+    arbitrary = np.array([1.0, 0.0, 0.0]) if abs(mean_isd[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = arbitrary - np.dot(arbitrary, mean_isd) * mean_isd
+    u = u / np.linalg.norm(u)
+    v = np.cross(mean_isd, u)
+    
+    # Project sampled points onto 2D basis
+    coords_2d = np.zeros((len(sampled_chroma), 2))
+    coords_2d[:, 0] = np.dot(sampled_chroma, u)
+    coords_2d[:, 1] = np.dot(sampled_chroma, v)
+    
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 10))
+    scatter = ax.scatter(
+        coords_2d[:, 0],
+        coords_2d[:, 1],
+        c=norm_colors,
+        s=5,
+        alpha=0.6,
+        rasterized=True
+    )
+    
+    ax.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax.set_title("Log Chromaticity Plane (Pre-Clustering)\nColored by Original RGB", fontsize=14)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal', adjustable='box')
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_log_chroma_plane_post_clustering(log_chroma_content, isd_map, bin_masks, bin_radius):
+    """
+    Visualize the 2D log chromaticity plane after clustering.
+    Shows pixel distribution colored by cluster ID.
+    
+    Args:
+        log_chroma_content: (H, W, 3) log chromaticity projection
+        isd_map: (H, W, 3) ISD direction vectors
+        bin_masks: list of (H, W) boolean masks for each bin
+        bin_radius: clustering radius used
+    """
+    H, W, _ = log_chroma_content.shape
+    
+    # Flatten spatial dimensions
+    log_chroma_flat = log_chroma_content.reshape(H * W, 3)
+    
+    # Create cluster ID map
+    cluster_ids = np.zeros(H * W, dtype=int)
+    for bin_id, mask in enumerate(bin_masks, start=1):
+        cluster_ids[mask.ravel()] = bin_id
+    
+    # Sample for visualization
+    num_samples = 200000
+    if len(log_chroma_flat) > num_samples:
+        indices = np.random.choice(len(log_chroma_flat), num_samples, replace=False)
+        sampled_chroma = log_chroma_flat[indices]
+        sampled_clusters = cluster_ids[indices]
+    else:
+        sampled_chroma = log_chroma_flat
+        sampled_clusters = cluster_ids
+    
+    # Project onto 2D plane perpendicular to mean ISD
+    mean_isd = isd_map.reshape(H * W, 3).mean(axis=0)
+    mean_isd = mean_isd / np.linalg.norm(mean_isd)
+    
+    # Create orthonormal basis for the plane
+    arbitrary = np.array([1.0, 0.0, 0.0]) if abs(mean_isd[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = arbitrary - np.dot(arbitrary, mean_isd) * mean_isd
+    u = u / np.linalg.norm(u)
+    v = np.cross(mean_isd, u)
+    
+    # Project sampled points onto 2D basis
+    coords_2d = np.zeros((len(sampled_chroma), 2))
+    coords_2d[:, 0] = np.dot(sampled_chroma, u)
+    coords_2d[:, 1] = np.dot(sampled_chroma, v)
+    
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    # Use a colormap that shows distinct clusters
+    num_clusters = len(bin_masks)
+    cmap = plt.cm.get_cmap('tab20' if num_clusters <= 20 else 'hsv', num_clusters)
+    
+    scatter = ax.scatter(
+        coords_2d[:, 0],
+        coords_2d[:, 1],
+        c=sampled_clusters,
+        cmap=cmap,
+        s=5,
+        alpha=0.6,
+        rasterized=True
+    )
+    
+    # Add colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label('Cluster ID', fontsize=12)
+    
+    ax.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax.set_title(f"Log Chromaticity Plane (Post-Clustering)\n{num_clusters} clusters with radius={bin_radius}", fontsize=14)
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal', adjustable='box')
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_cluster_spatial_distribution(bin_masks, content_img, content_bit_depth):
+    """
+    Show spatial distribution of clusters overlaid on the original image.
+    
+    Args:
+        bin_masks: list of (H, W) boolean masks for each bin
+        content_img: (H, W, 3) original linear RGB image
+        content_bit_depth: bit depth for normalization
+    """
+    from bidr_relight.image_process import normalized_linear_to_srgb
+    
+    H, W, _ = content_img.shape
+    num_clusters = len(bin_masks)
+    
+    # Create cluster ID image
+    cluster_img = np.zeros((H, W), dtype=int)
+    for bin_id, mask in enumerate(bin_masks, start=1):
+        cluster_img[mask] = bin_id
+    
+    # Normalize content image
+    norm_content = content_img / (2**content_bit_depth - 1)
+    norm_content = np.clip(norm_content, 0, 1)
+    srgb_content = normalized_linear_to_srgb(norm_content)
+    
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # Original image
+    ax1.imshow(srgb_content)
+    ax1.set_title("Original Content Image", fontsize=14)
+    ax1.axis('off')
+    
+    # Cluster overlay
+    cmap = plt.cm.get_cmap('tab20' if num_clusters <= 20 else 'hsv', num_clusters)
+    im = ax2.imshow(cluster_img, cmap=cmap)
+    ax2.set_title(f"Material Clusters ({num_clusters} clusters)", fontsize=14)
+    ax2.axis('off')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+    cbar.set_label('Cluster ID', fontsize=12)
+    
+    plt.tight_layout()
+    plt.show()

@@ -7,6 +7,7 @@ import logging
 
 from bidr_relight.isd_estimator.mock import MockISDModel
 from bidr_relight.isd_estimator.unet import ResNet50UNet
+from bidr_relight.clustering import cluster_log_chromaticity
 
 from bidr_relight.image_process import (
     resize_with_same_aspect,
@@ -20,7 +21,7 @@ from bidr_relight.bidr_process import (
 
 # from bidr_relight.illuminant_estimation import RecursiveRetinex
 
-from bidr_relight.plot import plot_image_rgb_logrgb, plot_content_log_chroma
+from bidr_relight.plot import plot_image_rgb_logrgb, plot_content_log_chroma, plot_log_chroma_plane_pre_clustering, plot_log_chroma_plane_post_clustering, plot_cluster_spatial_distribution
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -33,7 +34,9 @@ def relight_content_image(
     isd_model_path,
     output_path,
     resize_scale=1 / 4,
+    clustering_method="greedy",
     bin_radius=1.0,
+    n_clusters=4,
     shading_only=False,
     compression_factor=0.7,
 ):
@@ -135,35 +138,33 @@ def relight_content_image(
         plane_offset=np.array((10.4, 10.4, 10.4)),
     )  # (H, W, 3)
 
-    # Iterate through each unassigned pixel, and assign this and other unassigned pixels into a new group/bin by proximity in log chroma plane.
-    H, W, _ = log_chroma_content.shape
-    log_chroma_content_flat = log_chroma_content.reshape(H * W, 3)
-    bin_map = np.zeros(H * W)
-    bin_masks = []  # boolean mask of pixels for each bin
-    UNASSIGNED = 0
-    bin_id = 0
+    # Visualize before clustering
+    plot_log_chroma_plane_pre_clustering(
+        log_chroma_content, 
+        isd_maps[CONTENT], 
+        imgs[CONTENT], 
+        imgs_bit_depth[CONTENT]
+    )
 
-    for i in range(len(bin_map)):
-        if bin_map[i] != UNASSIGNED:
-            continue
+    # Perform clustering
+    bin_masks, bin_map = cluster_log_chromaticity(
+        log_chroma_content,
+        method=clustering_method,
+        bin_radius=bin_radius,
+        n_clusters=n_clusters,
+    )
 
-        # Compute distance between this unassigned px and others in log chroma plane
-        dist_to_other_pts = np.linalg.norm(
-            log_chroma_content_flat - log_chroma_content_flat[i], axis=1
-        )  # (HW, )
-
-        # Assign nearby unassigned (including this pixel) to a new bin
-        bin_id += 1
-        close_mask = dist_to_other_pts < bin_radius
-        unassigned_mask = bin_map == UNASSIGNED
-        new_bin_mask = np.logical_and(close_mask, unassigned_mask)
-        bin_map[new_bin_mask] = bin_id
-
-        bin_masks.append(new_bin_mask.reshape(H, W))
-
-    assert np.all(bin_map != UNASSIGNED)
-    logger.info(
-        f"Clustered pixels into {bin_id} bins in log chromaticity plane by proximity ({bin_radius=})"
+    # Visualize after clustering
+    plot_log_chroma_plane_post_clustering(
+        log_chroma_content, 
+        isd_maps[CONTENT], 
+        bin_masks, 
+        bin_radius if clustering_method == "greedy" else None
+    )
+    plot_cluster_spatial_distribution(
+        bin_masks, 
+        imgs[CONTENT], 
+        imgs_bit_depth[CONTENT]
     )
 
     # --- 4. Find the global illumination vector of content image. ---
