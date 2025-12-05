@@ -79,12 +79,15 @@ class ResNet50UNet(nn.Module):
             self.logger.info(f"Loading ResNet50 weights from checkpoint: {checkpoint}")
             resnet = resnet50(weights=None)
             state_dict = torch.load(checkpoint, map_location="cpu")
-            resnet.load_state_dict(
-                state_dict.get("state_dict", state_dict), strict=False
-            )
+
+            # OLD CODE
+            # resnet.load_state_dict(
+            #     state_dict.get("state_dict", state_dict), strict=False
+            # )
         else:
             weights = None
             resnet = resnet50(weights=weights)
+            state_dict = None
 
         # Encoder
         self.in_conv = nn.Sequential(
@@ -114,6 +117,10 @@ class ResNet50UNet(nn.Module):
                 in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
             )
         self._log_parameter_count()
+
+        # Loading pretrained weights
+        if state_dict is not None:
+            self.load_state_dict(state_dict["model_state_dict"])
 
     def _log_parameter_count(self):
         """
