@@ -180,7 +180,9 @@ def relight_content_image(
 
     # Compute signed dist along isd for each pixel.
     diff_vec = log_imgs[CONTENT] - log_chroma_content
-    signed_dist_map = (diff_vec * isd_map).sum(axis=2)  # dot product into (H,W)
+    signed_dist_map = (diff_vec * isd_maps[CONTENT]).sum(
+        axis=2
+    )  # dot product into (H,W)
 
     # Get the 5th and 95th percentile of signed dist distribution for each bin of pixels.
     lengths = []
@@ -205,7 +207,7 @@ def relight_content_image(
     mode_x = bin_x[bin_counts > count_threshold]
 
     # Use the rightmost mode as the illum vector norm.
-    illum_vector_norm = mode_x[np.argmax(mode_counts)]
+    illum_vector_norm = mode_x[-1]
     logger.info(f"Estimated illumination vector norm {illum_vector_norm}")
 
     # --- 5. Estimate fully (dark, bright) pairs for each material. ---
@@ -246,18 +248,19 @@ def relight_content_image(
     x_limits, y_limits, z_limits = bounds
 
     # Setting up axs
-    fig = plt.figure(figsize=(20, 20))
+    fig = plt.figure(figsize=(20, 40))
     axs = dict()
-    axs["style_img"] = fig.add_subplot(5, 2, 1)
-    axs["content_img"] = fig.add_subplot(5, 2, 2)
-    axs["style_rgb"] = fig.add_subplot(5, 2, 3, projection="3d")
-    axs["content_rgb"] = fig.add_subplot(5, 2, 4, projection="3d")
-    axs["style_log_rgb"] = fig.add_subplot(5, 2, 5, projection="3d")
-    axs["content_log_rgb"] = fig.add_subplot(5, 2, 6, projection="3d")
-    axs["mixed_rgb"] = fig.add_subplot(5, 2, 7, projection="3d")
-    axs["mixed_log_rgb"] = fig.add_subplot(5, 2, 8, projection="3d")
-    axs["content_projected_img"] = fig.add_subplot(5, 2, 9)
-    axs["content_projected_log_rgb"] = fig.add_subplot(5, 2, 10, projection="3d")
+    axs["style_img"] = fig.add_subplot(6, 2, 1)
+    axs["content_img"] = fig.add_subplot(6, 2, 2)
+    axs["style_rgb"] = fig.add_subplot(6, 2, 3, projection="3d")
+    axs["content_rgb"] = fig.add_subplot(6, 2, 4, projection="3d")
+    axs["style_log_rgb"] = fig.add_subplot(6, 2, 5, projection="3d")
+    axs["content_log_rgb"] = fig.add_subplot(6, 2, 6, projection="3d")
+    axs["mixed_rgb"] = fig.add_subplot(6, 2, 7, projection="3d")
+    axs["mixed_log_rgb"] = fig.add_subplot(6, 2, 8, projection="3d")
+    axs["content_projected_img"] = fig.add_subplot(6, 2, 9)
+    axs["content_projected_log_rgb"] = fig.add_subplot(6, 2, 10, projection="3d")
+    axs["clustered_content_log_rgb"] = fig.add_subplot(6, 2, 11, projection="3d")
 
     # Make log RGB plots same limits, aspect ratio
     log_rgb_plots_idx = [
@@ -265,6 +268,7 @@ def relight_content_image(
         "content_log_rgb",
         "mixed_log_rgb",
         "content_projected_log_rgb",
+        "clustered_content_log_rgb",
     ]
     for i in log_rgb_plots_idx:
         axs[i].set_box_aspect([1, 1, 1])
@@ -274,7 +278,7 @@ def relight_content_image(
 
     # Plots
     plot_img_rgb_logrgb(
-        axs, norm_content_img, norm_style_img, log_content_img, log_style_img
+        axs, norm_content_img, norm_style_img, log_content_img, log_style_img, bin_masks
     )
     plot_content_log_chroma(
         axs, log_chroma_content, content_bit_depth, norm_content_img
@@ -300,7 +304,7 @@ def relight_content_image(
     plt.show()
 
     # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps, imgs
+    return log_chroma_content, log_imgs, isd_maps, imgs, bin_masks
 
     # # OLD CODE FOR DARKENING AND ILLUMINANT ESTIMATE.
     # I guess darkening could be useful, but maybe include this later.

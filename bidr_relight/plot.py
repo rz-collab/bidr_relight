@@ -121,6 +121,7 @@ def plot_img_rgb_logrgb(
     norm_style_img,
     log_norm_content_img,
     log_norm_style_img,
+    log_cluster_bin_masks=None,
 ):
     # Row 1: Images
     # Convert linear to sRGB for visualization.
@@ -242,6 +243,30 @@ def plot_img_rgb_logrgb(
     axs["mixed_log_rgb"].set_zlabel("log(Blue)", fontsize=10)
     axs["mixed_log_rgb"].set_title("Log-RGB Comparison", fontsize=12)
     axs["mixed_log_rgb"].legend()
+
+    if log_cluster_bin_masks:
+        # Cluster overlay
+        num_clusters = len(log_cluster_bin_masks)
+        cmap = plt.cm.get_cmap("tab20" if num_clusters <= 20 else "hsv", num_clusters)
+
+        for i in range(num_clusters):
+            bin_mask_flat = log_cluster_bin_masks[i].ravel()
+            bin_mask_flat_sampled = bin_mask_flat[indices]
+            axs["clustered_content_log_rgb"].scatter(
+                log_content_sampled[bin_mask_flat_sampled, 0],
+                log_content_sampled[bin_mask_flat_sampled, 1],
+                log_content_sampled[bin_mask_flat_sampled, 2],
+                c=[cmap(i)],
+                s=2,
+                alpha=0.2,
+            )
+
+        axs["clustered_content_log_rgb"].set_xlabel("log(Red)", fontsize=10)
+        axs["clustered_content_log_rgb"].set_ylabel("log(Green)", fontsize=10)
+        axs["clustered_content_log_rgb"].set_zlabel("log(Blue)", fontsize=10)
+        axs["clustered_content_log_rgb"].set_title(
+            "Content Log-RGB Clustered", fontsize=12
+        )
 
 
 def plot_plane(axs, normal, point, bounds, alpha=0.3, color="red"):
