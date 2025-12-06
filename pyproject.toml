@@ -13,6 +13,7 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "rawpy>=0.25.1",
     "scikit-image>=0.25.2",
+    "scikit-learn>=1.7.2",
     "torch>=2.9.0",
     "torchvision>=0.24.0",
 ]
