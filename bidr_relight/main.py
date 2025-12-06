@@ -20,7 +20,13 @@ from bidr_relight.bidr_process import (
 
 # from bidr_relight.illuminant_estimation import RecursiveRetinex
 
-from bidr_relight.plot import plot_image_rgb_logrgb, plot_content_log_chroma
+from bidr_relight.plot import (
+    plot_img_rgb_logrgb,
+    plot_content_log_chroma,
+    plot_plane,
+    calculate_shared_limits,
+    plane_view_from_normal,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -36,6 +42,7 @@ def relight_content_image(
     bin_radius=1.0,
     shading_only=False,
     compression_factor=0.7,
+    view_isd=False,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -75,6 +82,7 @@ def relight_content_image(
             se_block=True,
             dropout=0.0,
         )
+
     elif isd_model == "vit":
         # TODO
         pass
@@ -125,14 +133,15 @@ def relight_content_image(
         isd_norm = np.linalg.norm(isd_map, axis=2, keepdims=True)
         isd_norm[isd_norm == 0] = 1
         isd_map = isd_map / isd_norm
-
         isd_maps.append(isd_map)
 
     # --- 3. Segment pixels by material: We group pixels whose projections are close in the 2D log-chromaticity plane (the plane orthogonal to the ISD). ---
+    plane_offset = np.array((10.4, 10.4, 10.4))
     log_chroma_content = project_to_log_chromaticity_plane(
         log_imgs[CONTENT],
         isd_maps[CONTENT],
-        plane_offset=np.array((10.4, 10.4, 10.4)),
+        plane_offset=plane_offset,
+        use_average_isd=False,
     )  # (H, W, 3)
 
     # Iterate through each unassigned pixel, and assign this and other unassigned pixels into a new group/bin by proximity in log chroma plane.
@@ -209,30 +218,93 @@ def relight_content_image(
     # TODO...
 
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
-    global_style_isd = get_global_isd(isd_map[STYLE])
+    global_style_isd = get_global_isd(isd_maps[STYLE])
     # TODO...
 
     # --- 7. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
     # TODO: Missing some plotting codes
-    # Commented transformed_rgb codes (which are the ones "compressed")
 
+    # Prepare data for plotting
     content_img, style_img = imgs
     content_bit_depth, style_bit_depth = imgs_bit_depth
     norm_content_img = content_img / (2**content_bit_depth - 1)
     norm_style_img = style_img / (2**style_bit_depth - 1)
 
-    plot_image_rgb_logrgb(
-        norm_content_img,
-        norm_style_img,
+    log_content_img, log_style_img = log_imgs
+    log_chroma_normal = get_global_isd(isd_maps[CONTENT])
+    log_chroma_offset = plane_offset
+
+    # Compute bounds/xyz limits for log rgb.
+    # Useful to see projections correctness when all log RGB plots share same limits.
+    log_chroma_content_flat = log_chroma_content.reshape(-1, 3)
+    log_content_flat = log_content_img.reshape(-1, 3)
+    log_style_flat = log_style_img.reshape(-1, 3)
+    bounds = calculate_shared_limits(
+        [
+            log_style_flat,
+            log_content_flat,
+            log_chroma_content_flat,
+        ],
+        padding=0.2,
+    )
+    x_limits, y_limits, z_limits = bounds
+
+    # Setting up axs
+    fig = plt.figure(figsize=(20, 20))
+    axs = dict()
+    axs["style_img"] = fig.add_subplot(5, 2, 1)
+    axs["content_img"] = fig.add_subplot(5, 2, 2)
+    axs["style_rgb"] = fig.add_subplot(5, 2, 3, projection="3d")
+    axs["content_rgb"] = fig.add_subplot(5, 2, 4, projection="3d")
+    axs["style_log_rgb"] = fig.add_subplot(5, 2, 5, projection="3d")
+    axs["content_log_rgb"] = fig.add_subplot(5, 2, 6, projection="3d")
+    axs["mixed_rgb"] = fig.add_subplot(5, 2, 7, projection="3d")
+    axs["mixed_log_rgb"] = fig.add_subplot(5, 2, 8, projection="3d")
+    axs["content_projected_img"] = fig.add_subplot(5, 2, 9)
+    axs["content_projected_log_rgb"] = fig.add_subplot(5, 2, 10, projection="3d")
+
+    # Make log RGB plots same limits, aspect ratio
+    log_rgb_plots_idx = [
+        "style_log_rgb",
+        "content_log_rgb",
+        "mixed_log_rgb",
+        "content_projected_log_rgb",
+    ]
+    for i in log_rgb_plots_idx:
+        axs[i].set_box_aspect([1, 1, 1])
+        axs[i].set_xlim(x_limits)
+        axs[i].set_ylim(y_limits)
+        axs[i].set_zlim(z_limits)
+
+    # Plots
+    plot_img_rgb_logrgb(
+        axs, norm_content_img, norm_style_img, log_content_img, log_style_img
+    )
+    plot_content_log_chroma(
+        axs, log_chroma_content, content_bit_depth, norm_content_img
+    )
+    plot_plane(
+        [axs["content_log_rgb"], axs["content_projected_log_rgb"]],
+        normal=log_chroma_normal,
+        point=log_chroma_offset,
+        bounds=bounds,
     )
 
-    plot_content_log_chroma(
-        log_chroma_content,
-        content_bit_depth,
-    )
+    # Make log RGB plots same view
+    if view_isd:
+        elev, azim = plane_view_from_normal(log_chroma_normal)
+    else:
+        elev = axs[log_rgb_plots_idx[-1]].elev
+        azim = axs[log_rgb_plots_idx[-1]].azim
+
+    for i in log_rgb_plots_idx:
+        axs[i].view_init(elev, azim)
+
+    plt.tight_layout()
+    plt.show()
 
     # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps
+    return log_chroma_content, log_imgs, isd_maps, imgs
 
     # # OLD CODE FOR DARKENING AND ILLUMINANT ESTIMATE.
     # I guess darkening could be useful, but maybe include this later.
