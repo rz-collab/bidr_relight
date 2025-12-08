@@ -15,20 +15,16 @@ def process_raw_into_linear(dir):
         for img_path in imgs:
             with rawpy.imread(str(img_path)) as raw:
                 # Debayer to linear 16-bit RGB
+                # Postprocess already do black-level substraction, and autoscales camera's white level to bit depth max
                 img_linear = raw.postprocess(
                     output_color=rawpy.ColorSpace.raw,
                     output_bps=16,
                     no_auto_bright=True,
+                    no_auto_scale=False,
                     use_camera_wb=False,
                     use_auto_wb=False,
                     gamma=(1, 1),
                 )
-
-                # # Subtract approximate black level
-                # bl_min = min(raw.black_level_per_channel)
-                # img_linear = np.clip(img_linear.astype(np.int32) - bl_min, 0, 65535).astype(
-                #     np.uint16
-                # )
 
             # Save as 16-bit TIFF
             out_path = img_path.with_suffix(".tiff")

@@ -115,6 +115,44 @@ def plot_content_log_chroma(
     )
 
 
+def plot_transformed_img_logrgb(
+    axs,
+    tf_log_img,
+    bit_depth,
+):
+    # Plot 1. Transformed Image
+    linear_img = np.exp(tf_log_img).astype(np.float32)
+    norm_linear_img = linear_img / (2**bit_depth - 1)
+    norm_linear_img = np.clip(norm_linear_img, 0.0, 1.0)
+    img = normalized_linear_to_srgb(norm_linear_img)
+    axs["tf_content_img"].imshow(img)
+    axs["tf_content_img"].set_title("Transformed Content Image", fontsize=12)
+    axs["tf_content_img"].axis("off")
+
+    # Plot 2. Transformed Image LOGRGB
+    # Sample pixels for log-RGB plotting
+    num_samples = 5000
+    content_flat = tf_log_img.reshape(-1, 3)
+    color_flat = img.reshape(-1, 3) / 255.0
+    if len(content_flat) > num_samples:
+        indices = np.random.choice(len(content_flat), num_samples, replace=False)
+        content_sampled = content_flat[indices]
+        color_sampled = color_flat[indices]
+    else:
+        content_sampled = content_flat
+        color_sampled = color_flat
+
+    plot_ax(
+        content_sampled,
+        colors=color_sampled,
+        ax=axs["tf_content_log_rgb"],
+        title="Transformed Content Log RGB",
+        axis_labels=["Log(Red)", "Log(Green)", "Log(Blue)"],
+        point_size=2,
+        alpha=0.3,
+    )
+
+
 def plot_img_rgb_logrgb(
     axs,
     norm_content_img,
