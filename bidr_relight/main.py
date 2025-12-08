@@ -229,48 +229,42 @@ def relight_content_image(
     bright_points = []
 
     for bin_idx, bin_mask in enumerate(bin_masks):
-        bin_isd = isd_maps[CONTENT][bin_mask].mean(
-            axis=0
-        )  # (3,) TODO: need to normalize to unit mag again.
-        bin_chroma = log_chroma_content[bin_mask].mean(axis=0)  # (3,)
+        bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)
+        bin_isd = bin_isd / np.linalg.norm(bin_isd)
+
         length = lengths[bin_idx]
+        signed_dists_bin = signed_dist_map[bin_mask].ravel()
+        
+        p5 = np.percentile(signed_dists_bin, 5)
+        p95 = np.percentile(signed_dists_bin, 95)
+        bin_indices = np.array(np.where(bin_mask)).T
+        p5_idx = np.argmin(np.abs(signed_dists_bin - p5))
+        p95_idx = np.argmin(np.abs(signed_dists_bin - p95))
+        p5_point = log_imgs[CONTENT][tuple(bin_indices[p5_idx])]
+        p95_point = log_imgs[CONTENT][tuple(bin_indices[p95_idx])]
 
-        # Check if cluster has a much smaller range than the global range
-        # (indicates fully lit or fully shaded)
         is_degenerate = length < 0.3 * global_range
-
         if is_degenerate:
-            # Check if cluster is fully lit or fully shaded
-            # Use the median signed distance and compare to global 10th percentile
-            signed_dists_bin = signed_dist_map[bin_mask].ravel()
             median_dist = np.median(signed_dists_bin)
-
             if median_dist > global_p10:
-                # Cluster is fully lit: use highest mode as the cylinder length
-                used_length = illum_vector_norm
+                # Fully lit: use real p95 as bright, estimate dark
+                bright_point = p95_point
+                dark_point = bright_point - illum_vector_norm * bin_isd
             else:
-                # Cluster is fully shaded: also use highest mode
-                used_length = illum_vector_norm
+                # Fully dark: use real p5 as dark, estimate bright
+                dark_point = p5_point
+                bright_point = dark_point + illum_vector_norm * bin_isd
         else:
-            # Cluster has both lit and shaded pixels: use its own range
-            used_length = length
-
-        # Compute dark and bright points centered on bin_chroma
-        # TODO: this is wrong. each bin's p5 = dark point and p95 = bright point, if degen: if lit, bright = p95, and dark has to be estimated as bright - length * isd.
-        # if dark, dark = p5, bright has to be estimated as dark + length * isd.
-        # I might also just use the pixelwise isd, instead of an average bin isd.
-        # Edit: need to modify/adjust so the p95 point is real point in the bin that is closest to p95 in terms of signed distance. and so on.
-        dark_point = bin_chroma - 0.5 * used_length * bin_isd
-        bright_point = bin_chroma + 0.5 * used_length * bin_isd
+            # Mixed: use real p5/p95 as endpoints
+            dark_point = p5_point
+            bright_point = p95_point
 
         dark_points.append(dark_point)
         bright_points.append(bright_point)
 
-    dark_points = np.array(dark_points)  # (n_bins, 3)
-    bright_points = np.array(bright_points)  # (n_bins, 3)
-    logger.info(
-        f"Estimated dark and bright points for {len(bin_masks)} material clusters"
-    )
+    dark_points = np.array(dark_points)
+    bright_points = np.array(bright_points)
+    logger.info(f"Estimated dark and bright points for {len(bin_masks)} material clusters")
 
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
 
