@@ -211,13 +211,95 @@ def relight_content_image(
     logger.info(f"Estimated illumination vector norm {illum_vector_norm}")
 
     # --- 5. Estimate fully (dark, bright) pairs for each material. ---
-    # To deal with material with only dark or bright pixels:
-    # Its opposite point is estimated using global illum vector norm and its ISD.
-    # TODO...
+    # Identify clusters with only lit or only shaded pixels and estimate missing points.
+    # First, compute the global range (95th - 5th percentile) for the whole image
+    global_signed_dists = signed_dist_map.ravel()
+    global_p5 = np.percentile(global_signed_dists, 5)
+    global_p95 = np.percentile(global_signed_dists, 95)
+    global_range = global_p95 - global_p5
+    global_p10 = np.percentile(global_signed_dists, 10)
+    
+    # For each cluster, determine if it's fully lit, fully shaded, or mixed
+    dark_points = []
+    bright_points = []
+    
+    for bin_idx, bin_mask in enumerate(bin_masks):
+        bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)  # (3,)
+        bin_chroma = log_chroma_content[bin_mask].mean(axis=0)  # (3,)
+        length = lengths[bin_idx]
+        
+        # Check if cluster has a much smaller range than the global range
+        # (indicates fully lit or fully shaded)
+        is_degenerate = length < 0.3 * global_range
+        
+        if is_degenerate:
+            # Check if cluster is fully lit or fully shaded
+            # Use the median signed distance and compare to global 10th percentile
+            signed_dists_bin = signed_dist_map[bin_mask].ravel()
+            median_dist = np.median(signed_dists_bin)
+            
+            if median_dist > global_p10:
+                # Cluster is fully lit: use highest mode as the cylinder length
+                used_length = illum_vector_norm
+            else:
+                # Cluster is fully shaded: also use highest mode
+                used_length = illum_vector_norm
+        else:
+            # Cluster has both lit and shaded pixels: use its own range
+            used_length = length
+        
+        # Compute dark and bright points centered on bin_chroma
+        dark_point = bin_chroma - 0.5 * used_length * bin_isd
+        bright_point = bin_chroma + 0.5 * used_length * bin_isd
+        
+        dark_points.append(dark_point)
+        bright_points.append(bright_point)
+    
+    dark_points = np.array(dark_points)  # (n_bins, 3)
+    bright_points = np.array(bright_points)  # (n_bins, 3)
+    logger.info(f"Estimated dark and bright points for {len(bin_masks)} material clusters")
 
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
+    # For each pixel in the image, calculate its distance from the dark point along the content ISD,
+    # then apply that distance along the style ISD direction
     global_style_isd = get_global_isd(isd_maps[STYLE])
-    # TODO...
+
+    transformed_log_content = np.copy(log_imgs[CONTENT])
+
+    for bin_idx, bin_mask in enumerate(bin_masks):
+
+        dark_point = dark_points[bin_idx]
+        bright_point = bright_points[bin_idx]
+
+        # Old and new illumination axes
+        v_old = bright_point - dark_point
+        old_len_sq = np.dot(v_old, v_old)
+
+        illum_length = np.linalg.norm(v_old)
+        new_bright_point = dark_point + illum_length * global_style_isd
+        v_new = new_bright_point - dark_point
+
+        # Pixel indices
+        pixel_indices = np.where(bin_mask.ravel())[0]
+
+        for pixel_idx in pixel_indices:
+            h, w = np.unravel_index(pixel_idx, bin_mask.shape)
+
+            pixel_log = log_imgs[CONTENT][h, w]
+
+            # relative to dark point (KEEP SIGNS)
+            rel = pixel_log - dark_point
+
+            # projection (illumination coefficient)
+            t = np.dot(rel, v_old) / old_len_sq
+            t = np.clip(t, 0, 1)
+
+            # reconstruct using style ISD direction
+            new_pixel = dark_point + t * v_new
+
+            transformed_log_content[h, w] = new_pixel
+
+    logger.info("Pivoted all pixels for each material cluster correctly.")
 
     # --- 7. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
     # TODO: Missing some plotting codes
