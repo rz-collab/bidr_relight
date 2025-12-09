@@ -54,6 +54,7 @@ def relight_content_image(
     log_transl=None,
     rot_percent=100.0,  # you either use rot_percent or rot_angle
     rot_angle=None,
+    always_use_global_illum_norm=True,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -244,7 +245,10 @@ def relight_content_image(
         p5_point = log_imgs[CONTENT][tuple(bin_indices[p5_idx])]
         p95_point = log_imgs[CONTENT][tuple(bin_indices[p95_idx])]
 
-        is_degenerate = length < 0.3 * global_range
+        if always_use_global_illum_norm:
+            is_degenerate = True
+        else:
+            is_degenerate = length < 0.3 * global_range
         if is_degenerate:
             median_dist = np.median(signed_dists_bin)
             if median_dist > global_median:
@@ -424,7 +428,7 @@ def relight_content_image(
     plt.show()
 
     # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps, imgs, bin_masks
+    return log_chroma_content, log_imgs, isd_maps, imgs
 
     # # OLD CODE FOR DARKENING AND ILLUMINANT ESTIMATE.
     # I guess darkening could be useful, but maybe include this later.
