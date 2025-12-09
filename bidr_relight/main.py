@@ -222,7 +222,7 @@ def relight_content_image(
     global_p5 = np.percentile(global_signed_dists, 5)
     global_p95 = np.percentile(global_signed_dists, 95)
     global_range = global_p95 - global_p5
-    global_p10 = np.percentile(global_signed_dists, 10)
+    global_median = np.percentile(global_signed_dists, 50)
 
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
@@ -246,7 +246,7 @@ def relight_content_image(
         is_degenerate = length < 0.3 * global_range
         if is_degenerate:
             median_dist = np.median(signed_dists_bin)
-            if median_dist > global_p10:
+            if median_dist > global_median:
                 # Fully lit: use real p95 as bright, estimate dark
                 bright_point = p95_point
                 dark_point = bright_point - illum_vector_norm * bin_isd
@@ -268,6 +268,9 @@ def relight_content_image(
         f"Estimated dark and bright points for {len(bin_masks)} material clusters"
     )
 
+    # print("Dark points: ", dark_points)
+    # print("Bright points: ", bright_points)
+
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
 
     # For each cylinder, we rotate its pixels about the cylinder's dark point from content ISD to style ISD.
@@ -275,7 +278,12 @@ def relight_content_image(
     # If a proportional `length_scale` is provided (not =1.0), we rotate + scale.
 
     global_style_isd = get_global_isd(isd_maps[STYLE])
+    global_content_isd = get_global_isd(isd_maps[CONTENT])
     tf_log_content = np.copy(log_imgs[CONTENT])
+
+    logger.info(
+        f"Average Style ISD: {global_style_isd}. Average Content ISD: {global_content_isd}"
+    )
 
     for cyl_idx, cyl_mask in enumerate(bin_masks):
         # Get cylinder's (dark,bright) pair
@@ -286,7 +294,10 @@ def relight_content_image(
         cyl_content_isd = (cyl_bright_point - cyl_dark_point) / np.linalg.norm(
             cyl_bright_point - cyl_dark_point
         )
-        R = rotation_matrix_from_vectors(cyl_content_isd, global_style_isd, rot_percent)
+        R = rotation_matrix_from_vectors(
+            cyl_content_isd, global_style_isd, rot_percent=rot_percent
+        )
+        # logger.info(f"DEBUG: Cluster {cyl_idx} average ISD: {cyl_content_isd}")
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -306,7 +317,6 @@ def relight_content_image(
         tf_log_content = tf_log_content + log_transl
 
     # --- 8. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
-    # TODO: Missing some plotting codes
 
     # Prepare data for plotting
     content_img, style_img = imgs
@@ -372,10 +382,20 @@ def relight_content_image(
 
     # Plots
     plot_img_rgb_logrgb(
-        axs, norm_content_img, norm_style_img, log_content_img, log_style_img, bin_masks
+        axs,
+        norm_content_img,
+        norm_style_img,
+        log_content_img,
+        log_style_img,
+        bin_masks,
+        # dark_points,    # Uncomment if you want to see them plotted.
+        # bright_points,
     )
     plot_content_log_chroma(
-        axs, log_chroma_content, content_bit_depth, norm_content_img
+        axs,
+        log_chroma_content,
+        content_bit_depth,
+        norm_content_img,
     )
     plot_plane(
         [axs["content_log_rgb"], axs["content_projected_log_rgb"]],

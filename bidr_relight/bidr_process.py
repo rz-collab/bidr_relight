@@ -94,11 +94,13 @@ def rotation_matrix_from_vectors(
 
     Ref: https://mathworld.wolfram.com/RodriguesRotationFormula.html
     """
-
     vec1 = vec1 / np.linalg.norm(vec1)
     vec2 = vec2 / np.linalg.norm(vec2)
+
     w = np.cross(vec1, vec2)  # Rotation axis
     w_norm = np.linalg.norm(w)
+    if np.isclose(w_norm, 0):
+        return np.eye(3)
     w = w / w_norm
 
     # Rotation axis skew sym matrix
@@ -117,5 +119,6 @@ def rotation_matrix_from_vectors(
         theta = np.acos(np.dot(vec1, vec2))
         theta = (rot_percent / 100.0) * theta
 
+    # print(f"theta : {theta}")
     R = np.eye(3) + np.sin(theta) * w_skew + (1 - np.cos(theta)) * w_skew @ w_skew
     return R
