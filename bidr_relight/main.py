@@ -234,7 +234,7 @@ def relight_content_image(
 
         length = lengths[bin_idx]
         signed_dists_bin = signed_dist_map[bin_mask].ravel()
-        
+
         p5 = np.percentile(signed_dists_bin, 5)
         p95 = np.percentile(signed_dists_bin, 95)
         bin_indices = np.array(np.where(bin_mask)).T
@@ -264,7 +264,9 @@ def relight_content_image(
 
     dark_points = np.array(dark_points)
     bright_points = np.array(bright_points)
-    logger.info(f"Estimated dark and bright points for {len(bin_masks)} material clusters")
+    logger.info(
+        f"Estimated dark and bright points for {len(bin_masks)} material clusters"
+    )
 
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
 
@@ -300,7 +302,7 @@ def relight_content_image(
     logger.info("Pivoted all pixels for each material cluster.")
 
     # --- 7. Optional global translation in log RGB for all pixels to change ambient illuminant.---
-    if log_transl:
+    if log_transl is not None:
         tf_log_content = tf_log_content + log_transl
 
     # --- 8. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
