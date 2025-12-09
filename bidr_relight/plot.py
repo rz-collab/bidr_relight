@@ -118,6 +118,7 @@ def plot_content_log_chroma(
 def plot_transformed_img_logrgb(
     axs,
     tf_log_img,
+    log_img,
     bit_depth,
 ):
     # Plot 1. Transformed Image
@@ -132,18 +133,21 @@ def plot_transformed_img_logrgb(
     # Plot 2. Transformed Image LOGRGB
     # Sample pixels for log-RGB plotting
     num_samples = 5000
-    content_flat = tf_log_img.reshape(-1, 3)
+    tf_log_flat = tf_log_img.reshape(-1, 3)
     color_flat = img.reshape(-1, 3) / 255.0
-    if len(content_flat) > num_samples:
-        indices = np.random.choice(len(content_flat), num_samples, replace=False)
-        content_sampled = content_flat[indices]
+    log_flat = log_img.reshape(-1, 3)
+    if len(tf_log_flat) > num_samples:
+        indices = np.random.choice(len(tf_log_flat), num_samples, replace=False)
+        tf_log_sampled = tf_log_flat[indices]
         color_sampled = color_flat[indices]
+        log_sampled = log_flat[indices]
     else:
-        content_sampled = content_flat
+        tf_log_sampled = tf_log_flat
         color_sampled = color_flat
+        log_sampled = log_flat
 
     plot_ax(
-        content_sampled,
+        tf_log_sampled,
         colors=color_sampled,
         ax=axs["tf_content_log_rgb"],
         title="Transformed Content Log RGB",
@@ -151,6 +155,31 @@ def plot_transformed_img_logrgb(
         point_size=2,
         alpha=0.3,
     )
+
+    # Plot 3. transformed + original content's LOG RGB overlayed
+    axs["mixed_tf_log_rgb"].scatter(
+        tf_log_sampled[:, 0],
+        tf_log_sampled[:, 1],
+        tf_log_sampled[:, 2],
+        c="green",
+        s=2,
+        alpha=0.2,
+        label="Transformed Content",
+    )
+    axs["mixed_tf_log_rgb"].scatter(
+        log_sampled[:, 0],
+        log_sampled[:, 1],
+        log_sampled[:, 2],
+        c="blue",
+        s=2,
+        alpha=0.2,
+        label="Original Content",
+    )
+    axs["mixed_tf_log_rgb"].set_xlabel("log(Red)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_ylabel("log(Green)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_zlabel("log(Blue)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_title("Log-RGB Comparison", fontsize=12)
+    axs["mixed_tf_log_rgb"].legend()
 
 
 def plot_img_rgb_logrgb(
@@ -380,8 +409,6 @@ def calculate_shared_limits(data_arrays, padding=0.1):
     z_limits = [z_min - padding * z_range, z_max + padding * z_range]
 
     return x_limits, y_limits, z_limits
-    plt.tight_layout()
-    plt.show()
 
 
 def plot_log_chroma_plane_pre_clustering(

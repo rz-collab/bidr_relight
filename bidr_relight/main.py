@@ -339,19 +339,20 @@ def relight_content_image(
     # Setting up axs
     fig = plt.figure(figsize=(20, 40))
     axs = dict()
-    axs["style_img"] = fig.add_subplot(7, 2, 1)
-    axs["content_img"] = fig.add_subplot(7, 2, 2)
-    axs["style_rgb"] = fig.add_subplot(7, 2, 3, projection="3d")
-    axs["content_rgb"] = fig.add_subplot(7, 2, 4, projection="3d")
-    axs["style_log_rgb"] = fig.add_subplot(7, 2, 5, projection="3d")
-    axs["content_log_rgb"] = fig.add_subplot(7, 2, 6, projection="3d")
-    axs["mixed_rgb"] = fig.add_subplot(7, 2, 7, projection="3d")
-    axs["mixed_log_rgb"] = fig.add_subplot(7, 2, 8, projection="3d")
-    axs["content_projected_img"] = fig.add_subplot(7, 2, 9)
-    axs["content_projected_log_rgb"] = fig.add_subplot(7, 2, 10, projection="3d")
-    axs["clustered_content_log_rgb"] = fig.add_subplot(7, 2, 11, projection="3d")
-    axs["tf_content_img"] = fig.add_subplot(7, 2, 13)
-    axs["tf_content_log_rgb"] = fig.add_subplot(7, 2, 14, projection="3d")
+    axs["style_img"] = fig.add_subplot(8, 2, 1)
+    axs["content_img"] = fig.add_subplot(8, 2, 2)
+    axs["style_rgb"] = fig.add_subplot(8, 2, 3, projection="3d")
+    axs["content_rgb"] = fig.add_subplot(8, 2, 4, projection="3d")
+    axs["style_log_rgb"] = fig.add_subplot(8, 2, 5, projection="3d")
+    axs["content_log_rgb"] = fig.add_subplot(8, 2, 6, projection="3d")
+    axs["mixed_rgb"] = fig.add_subplot(8, 2, 7, projection="3d")
+    axs["mixed_log_rgb"] = fig.add_subplot(8, 2, 8, projection="3d")
+    axs["content_projected_img"] = fig.add_subplot(8, 2, 9)
+    axs["content_projected_log_rgb"] = fig.add_subplot(8, 2, 10, projection="3d")
+    axs["clustered_content_log_rgb"] = fig.add_subplot(8, 2, 11, projection="3d")
+    axs["tf_content_img"] = fig.add_subplot(8, 2, 13)
+    axs["tf_content_log_rgb"] = fig.add_subplot(8, 2, 14, projection="3d")
+    axs["mixed_tf_log_rgb"] = fig.add_subplot(8, 2, 15, projection="3d")
 
     # Make log RGB plots same limits, aspect ratio
     log_rgb_plots_idx = [
@@ -361,6 +362,7 @@ def relight_content_image(
         "content_projected_log_rgb",
         "clustered_content_log_rgb",
         "tf_content_log_rgb",
+        "mixed_tf_log_rgb",
     ]
     for i in log_rgb_plots_idx:
         axs[i].set_box_aspect([1, 1, 1])
@@ -384,6 +386,7 @@ def relight_content_image(
     plot_transformed_img_logrgb(
         axs,
         tf_log_content,
+        log_content_img,
         content_bit_depth,
     )
 
