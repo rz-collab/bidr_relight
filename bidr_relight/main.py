@@ -52,7 +52,8 @@ def relight_content_image(
     view_isd=False,
     length_scale=1.0,
     log_transl=None,
-    rot_percent=100.0,
+    rot_percent=100.0,  # you either use rot_percent or rot_angle
+    rot_angle=None,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -281,6 +282,14 @@ def relight_content_image(
     global_content_isd = get_global_isd(isd_maps[CONTENT])
     tf_log_content = np.copy(log_imgs[CONTENT])
 
+    # Compute rotation matrix that rotates content ISD to style ISD,
+    R = rotation_matrix_from_vectors(
+        global_content_isd,
+        global_style_isd,
+        rot_percent=rot_percent,
+        rot_angle=rot_angle,
+    )
+
     logger.info(
         f"Average Style ISD: {global_style_isd}. Average Content ISD: {global_content_isd}"
     )
@@ -288,16 +297,7 @@ def relight_content_image(
     for cyl_idx, cyl_mask in enumerate(bin_masks):
         # Get cylinder's (dark,bright) pair
         cyl_dark_point = dark_points[cyl_idx]
-        cyl_bright_point = bright_points[cyl_idx]
-
-        # Compute rotation matrix that rotates cylinder's ISD to style ISD,
-        cyl_content_isd = (cyl_bright_point - cyl_dark_point) / np.linalg.norm(
-            cyl_bright_point - cyl_dark_point
-        )
-        R = rotation_matrix_from_vectors(
-            cyl_content_isd, global_style_isd, rot_percent=rot_percent
-        )
-        # logger.info(f"DEBUG: Cluster {cyl_idx} average ISD: {cyl_content_isd}")
+        # cyl_bright_point = bright_points[cyl_idx]
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -388,8 +388,8 @@ def relight_content_image(
         log_content_img,
         log_style_img,
         bin_masks,
-        # dark_points,    # Uncomment if you want to see them plotted.
-        # bright_points,
+        dark_points,  # Uncomment if you want to see them plotted.
+        bright_points,
     )
     plot_content_log_chroma(
         axs,
