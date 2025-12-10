@@ -70,6 +70,7 @@ def plot_content_log_chroma(
     log_chroma_content,
     content_bit_depth,
     norm_content_img,
+    sample_indices,
 ):
     """
     Plots log chromaticity image of the content image and the log RGB scatter plot for the log chromaticity.
@@ -93,16 +94,10 @@ def plot_content_log_chroma(
 
     # Projected content log RGB:
     # Sample pixels for log-RGB plotting
-    num_samples = 5000
     log_chroma_flat = log_chroma_content.reshape(-1, 3)
     content_flat = norm_content_img.reshape(-1, 3)
-    if len(content_flat) > num_samples:
-        indices = np.random.choice(len(content_flat), num_samples, replace=False)
-        content_sampled = content_flat[indices]
-        log_chroma_sampled = log_chroma_flat[indices]
-    else:
-        content_sampled = content_flat
-        log_chroma_sampled = log_chroma_flat
+    content_sampled = content_flat[sample_indices]
+    log_chroma_sampled = log_chroma_flat[sample_indices]
 
     plot_ax(
         log_chroma_sampled,
@@ -120,6 +115,7 @@ def plot_transformed_img_logrgb(
     tf_log_img,
     log_img,
     bit_depth,
+    sample_indices,
 ):
     # Plot 1. Transformed Image
     linear_img = np.exp(tf_log_img).astype(np.float32)
@@ -132,19 +128,12 @@ def plot_transformed_img_logrgb(
 
     # Plot 2. Transformed Image LOGRGB
     # Sample pixels for log-RGB plotting
-    num_samples = 5000
     tf_log_flat = tf_log_img.reshape(-1, 3)
     color_flat = img.reshape(-1, 3) / 255.0
     log_flat = log_img.reshape(-1, 3)
-    if len(tf_log_flat) > num_samples:
-        indices = np.random.choice(len(tf_log_flat), num_samples, replace=False)
-        tf_log_sampled = tf_log_flat[indices]
-        color_sampled = color_flat[indices]
-        log_sampled = log_flat[indices]
-    else:
-        tf_log_sampled = tf_log_flat
-        color_sampled = color_flat
-        log_sampled = log_flat
+    tf_log_sampled = tf_log_flat[sample_indices]
+    color_sampled = color_flat[sample_indices]
+    log_sampled = log_flat[sample_indices]
 
     plot_ax(
         tf_log_sampled,
@@ -188,6 +177,7 @@ def plot_img_rgb_logrgb(
     norm_style_img,
     log_content_img,
     log_style_img,
+    sample_indices,
     log_cluster_bin_masks=None,
     log_cluster_dark_points=None,
     log_cluster_bright_points=None,
@@ -206,7 +196,6 @@ def plot_img_rgb_logrgb(
     axs["content_img"].axis("off")
 
     # Sample pixels for RGB/logRGB plotting
-    num_samples = 5000
     log_content_flat = log_content_img.reshape(-1, 3)
     log_style_flat = log_style_img.reshape(-1, 3)
     content_flat = norm_content_img.reshape(-1, 3)
@@ -214,21 +203,12 @@ def plot_img_rgb_logrgb(
     content_color_flat = content_srgb_img.reshape(-1, 3) / 255.0
     style_color_flat = style_srgb_img.reshape(-1, 3) / 255.0
 
-    if len(log_content_flat) > num_samples:
-        indices = np.random.choice(len(log_content_flat), num_samples, replace=False)
-        log_content_sampled = log_content_flat[indices]
-        log_style_sampled = log_style_flat[indices]
-        content_sampled = content_flat[indices]
-        style_sampled = style_flat[indices]
-        content_color_sampled = content_color_flat[indices]
-        style_color_sampled = style_color_flat[indices]
-    else:
-        log_content_sampled = log_content_flat
-        log_style_sampled = log_style_flat
-        content_sampled = content_flat
-        style_sampled = style_flat
-        content_color_sampled = content_color_flat
-        style_color_sampled = style_color_flat
+    log_content_sampled = log_content_flat[sample_indices]
+    log_style_sampled = log_style_flat[sample_indices]
+    content_sampled = content_flat[sample_indices]
+    style_sampled = style_flat[sample_indices]
+    content_color_sampled = content_color_flat[sample_indices]
+    style_color_sampled = style_color_flat[sample_indices]
 
     # Row 2: RGB Space
     plot_ax(
@@ -326,7 +306,7 @@ def plot_img_rgb_logrgb(
 
         for i in range(num_clusters):
             bin_mask_flat = log_cluster_bin_masks[i].ravel()
-            bin_mask_flat_sampled = bin_mask_flat[indices]
+            bin_mask_flat_sampled = bin_mask_flat[sample_indices]
             axs["clustered_content_log_rgb"].scatter(
                 log_content_sampled[bin_mask_flat_sampled, 0],
                 log_content_sampled[bin_mask_flat_sampled, 1],
@@ -447,7 +427,7 @@ def calculate_shared_limits(data_arrays, padding=0.1):
 
 
 def plot_log_chroma_plane_pre_clustering(
-    log_chroma_content, isd_map, content_img, content_bit_depth
+    log_chroma_content, isd_map, content_img, content_bit_depth, sample_indices
 ):
     """
     Visualize the 2D log chromaticity plane before clustering.
@@ -465,17 +445,11 @@ def plot_log_chroma_plane_pre_clustering(
     log_chroma_flat = log_chroma_content.reshape(H * W, 3)
 
     # Sample for visualization (too many points slow down plotting)
-    num_samples = 200000
-    if len(log_chroma_flat) > num_samples:
-        indices = np.random.choice(len(log_chroma_flat), num_samples, replace=False)
-        sampled_chroma = log_chroma_flat[indices]
+    sampled_chroma = log_chroma_flat[sample_indices]
 
-        # Get corresponding RGB colors for those pixels
-        content_flat = content_img.reshape(H * W, 3)
-        sampled_colors = content_flat[indices]
-    else:
-        sampled_chroma = log_chroma_flat
-        sampled_colors = content_img.reshape(H * W, 3)
+    # Get corresponding RGB colors for those pixels
+    content_flat = content_img.reshape(H * W, 3)
+    sampled_colors = content_flat[sample_indices]
 
     # Normalize colors to [0, 1] for display
     norm_colors = sampled_colors / (2**content_bit_depth - 1)
@@ -525,7 +499,12 @@ def plot_log_chroma_plane_pre_clustering(
 
     # Right plot: colored by projected chromaticity
     ax2.scatter(
-        coords_2d[:, 0], coords_2d[:, 1], c=projected_rgb, s=5, alpha=0.6, rasterized=True
+        coords_2d[:, 0],
+        coords_2d[:, 1],
+        c=projected_rgb,
+        s=5,
+        alpha=0.6,
+        rasterized=True,
     )
     ax2.set_xlabel("Chromaticity Dimension 1", fontsize=12)
     ax2.set_ylabel("Chromaticity Dimension 2", fontsize=12)
@@ -539,7 +518,7 @@ def plot_log_chroma_plane_pre_clustering(
 
 
 def plot_log_chroma_plane_post_clustering(
-    log_chroma_content, isd_map, bin_masks, bin_radius
+    log_chroma_content, isd_map, bin_masks, bin_radius, sample_indices
 ):
     """
     Visualize the 2D log chromaticity plane after clustering.
@@ -562,14 +541,8 @@ def plot_log_chroma_plane_post_clustering(
         cluster_ids[mask.ravel()] = bin_id
 
     # Sample for visualization
-    num_samples = 200000
-    if len(log_chroma_flat) > num_samples:
-        indices = np.random.choice(len(log_chroma_flat), num_samples, replace=False)
-        sampled_chroma = log_chroma_flat[indices]
-        sampled_clusters = cluster_ids[indices]
-    else:
-        sampled_chroma = log_chroma_flat
-        sampled_clusters = cluster_ids
+    sampled_chroma = log_chroma_flat[sample_indices]
+    sampled_clusters = cluster_ids[sample_indices]
 
     # Project onto 2D plane perpendicular to mean ISD
     mean_isd = isd_map.reshape(H * W, 3).mean(axis=0)

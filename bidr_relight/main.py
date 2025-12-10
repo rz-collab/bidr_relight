@@ -148,8 +148,22 @@ def relight_content_image(
     )  # (H, W, 3)
 
     # Visualize before clustering
+    # For plotting RGB/logRGB, sample points:
+    num_samples = 100000
+    log_chroma_content_flat = log_chroma_content.reshape(-1, 3)
+    if num_samples > len(log_chroma_content_flat):
+        sample_indices = np.arange(len(log_chroma_content_flat))
+    else:
+        sample_indices = np.random.choice(
+            len(log_chroma_content_flat), num_samples, replace=False
+        )
+
     plot_log_chroma_plane_pre_clustering(
-        log_chroma_content, isd_maps[CONTENT], imgs[CONTENT], imgs_bit_depth[CONTENT]
+        log_chroma_content,
+        isd_maps[CONTENT],
+        imgs[CONTENT],
+        imgs_bit_depth[CONTENT],
+        sample_indices,
     )
 
     # Perform clustering
@@ -166,6 +180,7 @@ def relight_content_image(
         isd_maps[CONTENT],
         bin_masks,
         bin_radius if clustering_method == "greedy" else None,
+        sample_indices,
     )
     plot_cluster_spatial_distribution(bin_masks, imgs[CONTENT], imgs_bit_depth[CONTENT])
 
@@ -373,21 +388,29 @@ def relight_content_image(
         axs[i].set_zlim(z_limits)
 
     # Plots
+    # For plotting RGB/logRGB, sample points:
+    num_samples = 5000
+    log_chroma_content_flat = log_chroma_content.reshape(-1, 3)
+    sample_indices = np.random.choice(
+        len(log_chroma_content_flat), num_samples, replace=False
+    )
     plot_img_rgb_logrgb(
         axs,
         norm_content_img,
         norm_style_img,
         log_content_img,
         log_style_img,
+        sample_indices,
         bin_masks,
-        dark_points,  # Uncomment if you want to see them plotted.
-        bright_points,
+        # dark_points,  # Uncomment if you want to see them plotted.
+        # bright_points,
     )
     plot_content_log_chroma(
         axs,
         log_chroma_content,
         content_bit_depth,
         norm_content_img,
+        sample_indices,
     )
     plot_plane(
         [axs["content_log_rgb"], axs["content_projected_log_rgb"]],
@@ -400,6 +423,7 @@ def relight_content_image(
         tf_log_content,
         log_content_img,
         content_bit_depth,
+        sample_indices,
     )
 
     # Make log RGB plots same view
