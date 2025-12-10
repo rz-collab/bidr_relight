@@ -57,6 +57,20 @@ def convert_16bit_to_8bit(img: np.ndarray) -> np.ndarray:
     return img_normalized
 
 
+def crop_to_match(img, ref):
+    """
+    Crop `img` to the same HxW as `ref`, centered.
+    """
+    H, W = ref.shape[:2]
+    h, w = img.shape[:2]
+
+    # compute top-left corner
+    y0 = max(0, (h - H) // 2)
+    x0 = max(0, (w - W) // 2)
+
+    return img[y0 : y0 + H, x0 : x0 + W]
+
+
 def resize(img: np.ndarray, height: int, width: int) -> np.ndarray:
     return cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
 

@@ -12,6 +12,7 @@ from bidr_relight.clustering import cluster_log_chromaticity
 from bidr_relight.image_process import (
     resize_with_same_aspect,
     linear_to_log,
+    crop_to_match,
 )
 from bidr_relight.bidr_process import (
     project_to_log_chromaticity_plane,
@@ -112,7 +113,12 @@ def relight_content_image(
     for i in range(len(img_paths)):
         img = imread(img_paths[i])
         img_bit_depth = np.iinfo(img.dtype).bits
-        img = resize_with_same_aspect(img, scale=resize_scale)
+
+        if i == CONTENT:
+            img = resize_with_same_aspect(img, scale=resize_scale)
+        else:
+            # Match style image size with content image.
+            img = crop_to_match(img, imgs[CONTENT])
 
         # Drop alpha if present
         img = img[:, :, :3]
@@ -224,7 +230,9 @@ def relight_content_image(
     global_p5 = np.percentile(global_signed_dists, 5)
     global_p95 = np.percentile(global_signed_dists, 95)
     global_range = global_p95 - global_p5
-    global_median = np.percentile(global_signed_dists, 50)
+    global_median = np.percentile(global_signed_dists, 20)
+
+    print(f"{global_range=}, {illum_vector_norm=}")
 
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
