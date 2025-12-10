@@ -42,7 +42,6 @@ def relight_content_image(
     content_path,
     style_path,
     isd_model,
-    isd_model_path,
     output_path,
     resize_scale=1 / 4,
     clustering_method="greedy",
@@ -86,21 +85,7 @@ def relight_content_image(
     """
     CONTENT = 0
     STYLE = 1
-    if isd_model == "unet":
-        model = ResNet50UNet(
-            in_channels=3,
-            out_channels=3,
-            pretrained=True,
-            checkpoint=isd_model_path,
-            se_block=True,
-            dropout=0.0,
-        )
-
-    elif isd_model == "vit":
-        # TODO
-        pass
-    else:
-        model = MockISDModel()
+    model = isd_model
     model.eval()
 
     # --- 1. Load and preprocess images ---
@@ -227,12 +212,7 @@ def relight_content_image(
     # Identify clusters with only lit or only shaded pixels and estimate missing points.
     # First, compute the global range (95th - 5th percentile) for the whole image
     global_signed_dists = signed_dist_map.ravel()
-    global_p5 = np.percentile(global_signed_dists, 5)
-    global_p95 = np.percentile(global_signed_dists, 95)
-    global_range = global_p95 - global_p5
-    global_median = np.percentile(global_signed_dists, 20)
-
-    print(f"{global_range=}, {illum_vector_norm=}")
+    global_p20 = np.percentile(global_signed_dists, 20)
 
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
@@ -256,10 +236,10 @@ def relight_content_image(
         if always_use_global_illum_norm:
             is_degenerate = True
         else:
-            is_degenerate = length < 0.3 * global_range
+            is_degenerate = length < 0.3 * illum_vector_norm
         if is_degenerate:
             median_dist = np.median(signed_dists_bin)
-            if median_dist > global_median:
+            if median_dist > global_p20:
                 # Fully lit: use real p95 as bright, estimate dark
                 bright_point = p95_point
                 dark_point = bright_point - illum_vector_norm * bin_isd
@@ -337,7 +317,7 @@ def relight_content_image(
     norm_style_img = style_img / (2**style_bit_depth - 1)
 
     log_content_img, log_style_img = log_imgs
-    log_chroma_normal = get_global_isd(isd_maps[CONTENT])
+    log_chroma_normal = global_content_isd
     log_chroma_offset = plane_offset
 
     # Compute bounds/xyz limits for log rgb.
