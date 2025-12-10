@@ -351,7 +351,7 @@ def plot_log_chroma_plane_pre_clustering(
 ):
     """
     Visualize the 2D log chromaticity plane before clustering.
-    Shows pixel distribution colored by their original RGB values.
+    Shows two plots: one colored by original RGB, one by projected chromaticity.
 
     Args:
         log_chroma_content: (H, W, 3) log chromaticity projection
@@ -401,20 +401,38 @@ def plot_log_chroma_plane_pre_clustering(
     coords_2d[:, 0] = np.dot(sampled_chroma, u)
     coords_2d[:, 1] = np.dot(sampled_chroma, v)
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(12, 10))
-    scatter = ax.scatter(
+    # Reconstruct 3D colors from 2D projection for the second plot
+    projected_3d = coords_2d[:, 0:1] * u + coords_2d[:, 1:2] * v
+    # Convert back from log space
+    projected_rgb = np.exp(projected_3d)
+    # Normalize to [0, 1] for display
+    projected_rgb = projected_rgb / np.max(projected_rgb, axis=0, keepdims=True)
+    projected_rgb = np.clip(projected_rgb, 0, 1)
+
+    # Create side-by-side plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+
+    # Left plot: colored by original RGB
+    ax1.scatter(
         coords_2d[:, 0], coords_2d[:, 1], c=norm_colors, s=5, alpha=0.6, rasterized=True
     )
+    ax1.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax1.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax1.set_title("Colored by Original RGB Values", fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_aspect("equal", adjustable="box")
 
-    ax.set_xlabel("Chromaticity Dimension 1", fontsize=12)
-    ax.set_ylabel("Chromaticity Dimension 2", fontsize=12)
-    ax.set_title(
-        "Log Chromaticity Plane (Pre-Clustering)\nColored by Original RGB", fontsize=14
+    # Right plot: colored by projected chromaticity
+    ax2.scatter(
+        coords_2d[:, 0], coords_2d[:, 1], c=projected_rgb, s=5, alpha=0.6, rasterized=True
     )
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect("equal", adjustable="box")
+    ax2.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax2.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax2.set_title("Colored by Projected Chromaticity", fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_aspect("equal", adjustable="box")
 
+    fig.suptitle("Log Chromaticity Plane (Pre-Clustering)", fontsize=16, y=1.02)
     plt.tight_layout()
     plt.show()
 
