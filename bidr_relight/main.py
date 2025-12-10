@@ -16,6 +16,7 @@ from bidr_relight.image_process import (
 from bidr_relight.bidr_process import (
     project_to_log_chromaticity_plane,
     get_global_isd,
+    rotation_matrix_from_vectors,
 )
 
 # from bidr_relight.illuminant_estimation import RecursiveRetinex
@@ -29,6 +30,7 @@ from bidr_relight.plot import (
     plot_log_chroma_plane_pre_clustering,
     plot_log_chroma_plane_post_clustering,
     plot_cluster_spatial_distribution,
+    plot_transformed_img_logrgb,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -48,6 +50,11 @@ def relight_content_image(
     shading_only=False,
     compression_factor=0.7,
     view_isd=False,
+    length_scale=1.0,
+    log_transl=None,
+    rot_percent=100.0,  # you either use rot_percent or rot_angle
+    rot_angle=None,
+    always_use_global_illum_norm=True,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -211,16 +218,109 @@ def relight_content_image(
     logger.info(f"Estimated illumination vector norm {illum_vector_norm}")
 
     # --- 5. Estimate fully (dark, bright) pairs for each material. ---
-    # To deal with material with only dark or bright pixels:
-    # Its opposite point is estimated using global illum vector norm and its ISD.
-    # TODO...
+    # Identify clusters with only lit or only shaded pixels and estimate missing points.
+    # First, compute the global range (95th - 5th percentile) for the whole image
+    global_signed_dists = signed_dist_map.ravel()
+    global_p5 = np.percentile(global_signed_dists, 5)
+    global_p95 = np.percentile(global_signed_dists, 95)
+    global_range = global_p95 - global_p5
+    global_median = np.percentile(global_signed_dists, 50)
+
+    # For each cluster, determine if it's fully lit, fully shaded, or mixed
+    dark_points = []
+    bright_points = []
+
+    for bin_idx, bin_mask in enumerate(bin_masks):
+        bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)
+        bin_isd = bin_isd / np.linalg.norm(bin_isd)
+
+        length = lengths[bin_idx]
+        signed_dists_bin = signed_dist_map[bin_mask].ravel()
+
+        p5 = np.percentile(signed_dists_bin, 5)
+        p95 = np.percentile(signed_dists_bin, 95)
+        bin_indices = np.array(np.where(bin_mask)).T
+        p5_idx = np.argmin(np.abs(signed_dists_bin - p5))
+        p95_idx = np.argmin(np.abs(signed_dists_bin - p95))
+        p5_point = log_imgs[CONTENT][tuple(bin_indices[p5_idx])]
+        p95_point = log_imgs[CONTENT][tuple(bin_indices[p95_idx])]
+
+        if always_use_global_illum_norm:
+            is_degenerate = True
+        else:
+            is_degenerate = length < 0.3 * global_range
+        if is_degenerate:
+            median_dist = np.median(signed_dists_bin)
+            if median_dist > global_median:
+                # Fully lit: use real p95 as bright, estimate dark
+                bright_point = p95_point
+                dark_point = bright_point - illum_vector_norm * bin_isd
+            else:
+                # Fully dark: use real p5 as dark, estimate bright
+                dark_point = p5_point
+                bright_point = dark_point + illum_vector_norm * bin_isd
+        else:
+            # Mixed: use real p5/p95 as endpoints
+            dark_point = p5_point
+            bright_point = p95_point
+
+        dark_points.append(dark_point)
+        bright_points.append(bright_point)
+
+    dark_points = np.array(dark_points)
+    bright_points = np.array(bright_points)
+    logger.info(
+        f"Estimated dark and bright points for {len(bin_masks)} material clusters"
+    )
+
+    # print("Dark points: ", dark_points)
+    # print("Bright points: ", bright_points)
 
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
-    global_style_isd = get_global_isd(isd_maps[STYLE])
-    # TODO...
 
-    # --- 7. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
-    # TODO: Missing some plotting codes
+    # For each cylinder, we rotate its pixels about the cylinder's dark point from content ISD to style ISD.
+    # By default, this pure rotation maintains length of px from their corresponding dark point.
+    # If a proportional `length_scale` is provided (not =1.0), we rotate + scale.
+
+    global_style_isd = get_global_isd(isd_maps[STYLE])
+    global_content_isd = get_global_isd(isd_maps[CONTENT])
+    tf_log_content = np.copy(log_imgs[CONTENT])
+
+    # Compute rotation matrix that rotates content ISD to style ISD,
+    R = rotation_matrix_from_vectors(
+        global_content_isd,
+        global_style_isd,
+        rot_percent=rot_percent,
+        rot_angle=rot_angle,
+    )
+
+    logger.info(
+        f"Average Style ISD: {global_style_isd}. Average Content ISD: {global_content_isd}"
+    )
+
+    for cyl_idx, cyl_mask in enumerate(bin_masks):
+        # Get cylinder's (dark,bright) pair
+        cyl_dark_point = dark_points[cyl_idx]
+        # cyl_bright_point = bright_points[cyl_idx]
+
+        # Iterate through pixels that belongs to this cluster to apply the transformation
+        cyl_px_idx = np.where(cyl_mask.ravel())[0]
+        for px_idx in cyl_px_idx:
+            h, w = np.unravel_index(px_idx, cyl_mask.shape)
+            log_px = log_imgs[CONTENT][h, w]
+
+            # Rotate (with optional linear scaling)
+            rel = log_px - cyl_dark_point
+            transformed_log_px = cyl_dark_point + length_scale * R @ rel
+            tf_log_content[h, w] = transformed_log_px
+
+    logger.info("Pivoted all pixels for each material cluster.")
+
+    # --- 7. Optional global translation in log RGB for all pixels to change ambient illuminant.---
+    if log_transl is not None:
+        tf_log_content = tf_log_content + log_transl
+
+    # --- 8. Plots: log chroma, illum norm distribution, sRGB, logRGB. ---
 
     # Prepare data for plotting
     content_img, style_img = imgs
@@ -237,11 +337,14 @@ def relight_content_image(
     log_chroma_content_flat = log_chroma_content.reshape(-1, 3)
     log_content_flat = log_content_img.reshape(-1, 3)
     log_style_flat = log_style_img.reshape(-1, 3)
+    tf_log_content_flat = tf_log_content.reshape(-1, 3)
+
     bounds = calculate_shared_limits(
         [
             log_style_flat,
             log_content_flat,
             log_chroma_content_flat,
+            tf_log_content_flat,
         ],
         padding=0.2,
     )
@@ -250,17 +353,20 @@ def relight_content_image(
     # Setting up axs
     fig = plt.figure(figsize=(20, 40))
     axs = dict()
-    axs["style_img"] = fig.add_subplot(6, 2, 1)
-    axs["content_img"] = fig.add_subplot(6, 2, 2)
-    axs["style_rgb"] = fig.add_subplot(6, 2, 3, projection="3d")
-    axs["content_rgb"] = fig.add_subplot(6, 2, 4, projection="3d")
-    axs["style_log_rgb"] = fig.add_subplot(6, 2, 5, projection="3d")
-    axs["content_log_rgb"] = fig.add_subplot(6, 2, 6, projection="3d")
-    axs["mixed_rgb"] = fig.add_subplot(6, 2, 7, projection="3d")
-    axs["mixed_log_rgb"] = fig.add_subplot(6, 2, 8, projection="3d")
-    axs["content_projected_img"] = fig.add_subplot(6, 2, 9)
-    axs["content_projected_log_rgb"] = fig.add_subplot(6, 2, 10, projection="3d")
-    axs["clustered_content_log_rgb"] = fig.add_subplot(6, 2, 11, projection="3d")
+    axs["style_img"] = fig.add_subplot(8, 2, 1)
+    axs["content_img"] = fig.add_subplot(8, 2, 2)
+    axs["style_rgb"] = fig.add_subplot(8, 2, 3, projection="3d")
+    axs["content_rgb"] = fig.add_subplot(8, 2, 4, projection="3d")
+    axs["style_log_rgb"] = fig.add_subplot(8, 2, 5, projection="3d")
+    axs["content_log_rgb"] = fig.add_subplot(8, 2, 6, projection="3d")
+    axs["mixed_rgb"] = fig.add_subplot(8, 2, 7, projection="3d")
+    axs["mixed_log_rgb"] = fig.add_subplot(8, 2, 8, projection="3d")
+    axs["content_projected_img"] = fig.add_subplot(8, 2, 9)
+    axs["content_projected_log_rgb"] = fig.add_subplot(8, 2, 10, projection="3d")
+    axs["clustered_content_log_rgb"] = fig.add_subplot(8, 2, 11, projection="3d")
+    axs["tf_content_img"] = fig.add_subplot(8, 2, 13)
+    axs["tf_content_log_rgb"] = fig.add_subplot(8, 2, 14, projection="3d")
+    axs["mixed_tf_log_rgb"] = fig.add_subplot(8, 2, 15, projection="3d")
 
     # Make log RGB plots same limits, aspect ratio
     log_rgb_plots_idx = [
@@ -269,6 +375,8 @@ def relight_content_image(
         "mixed_log_rgb",
         "content_projected_log_rgb",
         "clustered_content_log_rgb",
+        "tf_content_log_rgb",
+        "mixed_tf_log_rgb",
     ]
     for i in log_rgb_plots_idx:
         axs[i].set_box_aspect([1, 1, 1])
@@ -278,16 +386,32 @@ def relight_content_image(
 
     # Plots
     plot_img_rgb_logrgb(
-        axs, norm_content_img, norm_style_img, log_content_img, log_style_img, bin_masks
+        axs,
+        norm_content_img,
+        norm_style_img,
+        log_content_img,
+        log_style_img,
+        bin_masks,
+        dark_points,  # Uncomment if you want to see them plotted.
+        bright_points,
     )
     plot_content_log_chroma(
-        axs, log_chroma_content, content_bit_depth, norm_content_img
+        axs,
+        log_chroma_content,
+        content_bit_depth,
+        norm_content_img,
     )
     plot_plane(
         [axs["content_log_rgb"], axs["content_projected_log_rgb"]],
         normal=log_chroma_normal,
         point=log_chroma_offset,
         bounds=bounds,
+    )
+    plot_transformed_img_logrgb(
+        axs,
+        tf_log_content,
+        log_content_img,
+        content_bit_depth,
     )
 
     # Make log RGB plots same view
@@ -304,7 +428,7 @@ def relight_content_image(
     plt.show()
 
     # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps, imgs, bin_masks
+    return log_chroma_content, log_imgs, isd_maps, imgs
 
     # # OLD CODE FOR DARKENING AND ILLUMINANT ESTIMATE.
     # I guess darkening could be useful, but maybe include this later.

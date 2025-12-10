@@ -115,13 +115,82 @@ def plot_content_log_chroma(
     )
 
 
+def plot_transformed_img_logrgb(
+    axs,
+    tf_log_img,
+    log_img,
+    bit_depth,
+):
+    # Plot 1. Transformed Image
+    linear_img = np.exp(tf_log_img).astype(np.float32)
+    norm_linear_img = linear_img / (2**bit_depth - 1)
+    norm_linear_img = np.clip(norm_linear_img, 0.0, 1.0)
+    img = normalized_linear_to_srgb(norm_linear_img)
+    axs["tf_content_img"].imshow(img)
+    axs["tf_content_img"].set_title("Transformed Content Image", fontsize=12)
+    axs["tf_content_img"].axis("off")
+
+    # Plot 2. Transformed Image LOGRGB
+    # Sample pixels for log-RGB plotting
+    num_samples = 5000
+    tf_log_flat = tf_log_img.reshape(-1, 3)
+    color_flat = img.reshape(-1, 3) / 255.0
+    log_flat = log_img.reshape(-1, 3)
+    if len(tf_log_flat) > num_samples:
+        indices = np.random.choice(len(tf_log_flat), num_samples, replace=False)
+        tf_log_sampled = tf_log_flat[indices]
+        color_sampled = color_flat[indices]
+        log_sampled = log_flat[indices]
+    else:
+        tf_log_sampled = tf_log_flat
+        color_sampled = color_flat
+        log_sampled = log_flat
+
+    plot_ax(
+        tf_log_sampled,
+        colors=color_sampled,
+        ax=axs["tf_content_log_rgb"],
+        title="Transformed Content Log RGB",
+        axis_labels=["Log(Red)", "Log(Green)", "Log(Blue)"],
+        point_size=2,
+        alpha=0.3,
+    )
+
+    # Plot 3. transformed + original content's LOG RGB overlayed
+    axs["mixed_tf_log_rgb"].scatter(
+        tf_log_sampled[:, 0],
+        tf_log_sampled[:, 1],
+        tf_log_sampled[:, 2],
+        c="green",
+        s=2,
+        alpha=0.2,
+        label="Transformed Content",
+    )
+    axs["mixed_tf_log_rgb"].scatter(
+        log_sampled[:, 0],
+        log_sampled[:, 1],
+        log_sampled[:, 2],
+        c="blue",
+        s=2,
+        alpha=0.2,
+        label="Original Content",
+    )
+    axs["mixed_tf_log_rgb"].set_xlabel("log(Red)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_ylabel("log(Green)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_zlabel("log(Blue)", fontsize=10)
+    axs["mixed_tf_log_rgb"].set_title("Log-RGB Comparison", fontsize=12)
+    axs["mixed_tf_log_rgb"].legend()
+
+
 def plot_img_rgb_logrgb(
     axs,
     norm_content_img,
     norm_style_img,
-    log_norm_content_img,
-    log_norm_style_img,
+    log_content_img,
+    log_style_img,
     log_cluster_bin_masks=None,
+    log_cluster_dark_points=None,
+    log_cluster_bright_points=None,
 ):
     # Row 1: Images
     # Convert linear to sRGB for visualization.
@@ -138,10 +207,12 @@ def plot_img_rgb_logrgb(
 
     # Sample pixels for RGB/logRGB plotting
     num_samples = 5000
-    log_content_flat = log_norm_content_img.reshape(-1, 3)
-    log_style_flat = log_norm_style_img.reshape(-1, 3)
+    log_content_flat = log_content_img.reshape(-1, 3)
+    log_style_flat = log_style_img.reshape(-1, 3)
     content_flat = norm_content_img.reshape(-1, 3)
     style_flat = norm_style_img.reshape(-1, 3)
+    content_color_flat = content_srgb_img.reshape(-1, 3) / 255.0
+    style_color_flat = style_srgb_img.reshape(-1, 3) / 255.0
 
     if len(log_content_flat) > num_samples:
         indices = np.random.choice(len(log_content_flat), num_samples, replace=False)
@@ -149,16 +220,20 @@ def plot_img_rgb_logrgb(
         log_style_sampled = log_style_flat[indices]
         content_sampled = content_flat[indices]
         style_sampled = style_flat[indices]
+        content_color_sampled = content_color_flat[indices]
+        style_color_sampled = style_color_flat[indices]
     else:
         log_content_sampled = log_content_flat
         log_style_sampled = log_style_flat
         content_sampled = content_flat
         style_sampled = style_flat
+        content_color_sampled = content_color_flat
+        style_color_sampled = style_color_flat
 
     # Row 2: RGB Space
     plot_ax(
         style_sampled,
-        colors=style_sampled,
+        colors=style_color_sampled,
         ax=axs["style_rgb"],
         title="Style RGB Space",
         axis_labels=["R", "G", "B"],
@@ -167,7 +242,7 @@ def plot_img_rgb_logrgb(
     )
     plot_ax(
         content_sampled,
-        colors=content_sampled,
+        colors=content_color_sampled,
         ax=axs["content_rgb"],
         title="Content RGB Space",
         axis_labels=["R", "G", "B"],
@@ -178,7 +253,7 @@ def plot_img_rgb_logrgb(
     # Row 3: Log-RGB Space
     plot_ax(
         log_style_sampled,
-        colors=style_sampled,
+        colors=style_color_sampled,
         ax=axs["style_log_rgb"],
         title="Style Log-RGB Space",
         axis_labels=["Log(R)", "Log(G)", "Log(B)"],
@@ -187,7 +262,7 @@ def plot_img_rgb_logrgb(
     )
     plot_ax(
         log_content_sampled,
-        colors=content_sampled,
+        colors=content_color_sampled,
         ax=axs["content_log_rgb"],
         title="content Log-RGB Space",
         axis_labels=["Log(R)", "Log(G)", "Log(B)"],
@@ -258,8 +333,35 @@ def plot_img_rgb_logrgb(
                 log_content_sampled[bin_mask_flat_sampled, 2],
                 c=[cmap(i)],
                 s=2,
-                alpha=0.2,
+                alpha=0.1,
             )
+
+        # Note: separated for loop to make sure these appear in front.
+        for i in range(num_clusters):
+            # Create markers on dark and bright points
+            if log_cluster_dark_points is not None:
+                axs["clustered_content_log_rgb"].scatter(
+                    log_cluster_dark_points[i][0],
+                    log_cluster_dark_points[i][1],
+                    log_cluster_dark_points[i][2],
+                    c=[cmap(i)],
+                    edgecolors="black",
+                    linewidth=0.5,
+                    s=20,
+                    alpha=1.0,
+                )
+
+            if log_cluster_bright_points is not None:
+                axs["clustered_content_log_rgb"].scatter(
+                    log_cluster_bright_points[i][0],
+                    log_cluster_bright_points[i][1],
+                    log_cluster_bright_points[i][2],
+                    c=[cmap(i)],
+                    edgecolors="red",
+                    linewidth=0.5,
+                    s=20,
+                    alpha=1.0,
+                )
 
         axs["clustered_content_log_rgb"].set_xlabel("log(Red)", fontsize=10)
         axs["clustered_content_log_rgb"].set_ylabel("log(Green)", fontsize=10)
@@ -342,8 +444,6 @@ def calculate_shared_limits(data_arrays, padding=0.1):
     z_limits = [z_min - padding * z_range, z_max + padding * z_range]
 
     return x_limits, y_limits, z_limits
-    plt.tight_layout()
-    plt.show()
 
 
 def plot_log_chroma_plane_pre_clustering(
@@ -380,6 +480,7 @@ def plot_log_chroma_plane_pre_clustering(
     # Normalize colors to [0, 1] for display
     norm_colors = sampled_colors / (2**content_bit_depth - 1)
     norm_colors = np.clip(norm_colors, 0, 1)
+    norm_colors = normalized_linear_to_srgb(norm_colors) / 255.0
 
     # Project onto 2D plane perpendicular to mean ISD
     mean_isd = isd_map.reshape(H * W, 3).mean(axis=0)

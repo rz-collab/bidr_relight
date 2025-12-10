@@ -79,3 +79,46 @@ def get_global_isd(isd_map):
     global_isd = np.mean(isd_map, axis=(0, 1))
     global_isd /= np.linalg.norm(global_isd)
     return global_isd
+
+
+def rotation_matrix_from_vectors(
+    vec1, vec2, rot_angle=None, rot_percent: float = 100.0
+):
+    """
+    Find the rotation matrix that rotates from vec1 to vec2 using Rodriguez Formula.
+
+    The `rot_angle` and `rot_percent` are two possible ways to specify a desired rotation behavior.
+    Use one or another, not both.
+    - If `rot_angle`: rotate for a certain amount of degrees from vec1 to vec2.
+    - If `rot_percent`: rotate `rot_percent` from vec1 to vec2.
+
+    Ref: https://mathworld.wolfram.com/RodriguesRotationFormula.html
+    """
+    vec1 = vec1 / np.linalg.norm(vec1)
+    vec2 = vec2 / np.linalg.norm(vec2)
+
+    w = np.cross(vec1, vec2)  # Rotation axis
+    w_norm = np.linalg.norm(w)
+    if np.isclose(w_norm, 0):
+        return np.eye(3)
+    w = w / w_norm
+
+    # Rotation axis skew sym matrix
+    w_skew = np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+    # Compute the rotation matrix that rotates about \hat{w} for theta angle.
+    # Find the desired rotation angle theta:
+    if rot_angle is None and np.isclose(rot_percent, 100.0):
+        # Default: Use the real theta between vec1 and vec2.
+        theta = np.acos(np.dot(vec1, vec2))
+    elif rot_angle is not None:
+        # Use user-provided theta
+        theta = rot_angle
+    else:
+        # Use `rot_percent` of real theta between vec1 and vec2.
+        theta = np.acos(np.dot(vec1, vec2))
+        theta = (rot_percent / 100.0) * theta
+
+    # print(f"theta : {theta}")
+    R = np.eye(3) + np.sin(theta) * w_skew + (1 - np.cos(theta)) * w_skew @ w_skew
+    return R
