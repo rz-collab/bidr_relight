@@ -12,7 +12,7 @@ from bidr_relight.clustering import cluster_log_chromaticity
 from bidr_relight.image_process import (
     resize_with_same_aspect,
     linear_to_log,
-    crop_to_match,
+    resize,
 )
 from bidr_relight.bidr_process import (
     project_to_log_chromaticity_plane,
@@ -47,8 +47,6 @@ def relight_content_image(
     clustering_method="greedy",
     bin_radius=1.0,
     n_clusters=4,
-    shading_only=False,
-    compression_factor=0.7,
     view_isd=False,
     length_scale=1.0,
     log_transl=None,
@@ -103,7 +101,8 @@ def relight_content_image(
             img = resize_with_same_aspect(img, scale=resize_scale)
         else:
             # Match style image size with content image.
-            img = crop_to_match(img, imgs[CONTENT])
+            H, W, _ = imgs[CONTENT].shape
+            img = resize(img, H, W)
 
         # Drop alpha if present
         img = img[:, :, :3]
@@ -438,30 +437,3 @@ def relight_content_image(
 
     plt.tight_layout()
     plt.show()
-
-    # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps, imgs
-
-    # # OLD CODE FOR DARKENING AND ILLUMINANT ESTIMATE.
-    # I guess darkening could be useful, but maybe include this later.
-    # ILLUMINANT estimate idk what this achieve.
-    # # # --- 3. Estimate direct illuminant chromaticity ---
-    # # if not shading_only:
-    # #     epsilon = 1e-6
-    # #     L_content = RecursiveRetinex(content)
-    # #     L_style = RecursiveRetinex(style)
-    # #     log_L_content = np.log(L_content + epsilon)
-    # #     log_L_style = np.log(L_style + epsilon)
-    # #     delta_illuminant = log_L_style - log_L_content
-    # # else:
-    # #     delta_illuminant = np.zeros(3, dtype=np.float32)
-    # #
-    # # --- 5. Vectorized transformation ---
-    # # FIX: Compression in log space
-    # # To reduce brightness by compression_factor, add log(compression_factor) along ISD
-    # # log_compression = np.log(compression_factor)
-    # #
-    # # # Move along ISD direction (ISD points dark→bright, so negative = darker)
-    # # transformed_log = (
-    # #     log_content + log_compression * predicted_isd_map + delta_illuminant
-    # # )
