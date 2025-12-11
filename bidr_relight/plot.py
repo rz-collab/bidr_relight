@@ -2,7 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from bidr_relight.image_process import normalized_linear_to_srgb
-import numpy as np
+
+
+def plot_roi(norm_linear_img, roi):
+    y, x, h, w = roi  # row, col, height, width
+    srgb_img = normalized_linear_to_srgb(norm_linear_img)
+    srgb_roi = srgb_img[y : y + h, x : x + w]
+    plt.figure()
+    plt.imshow(srgb_roi)
 
 
 def plot_ax(

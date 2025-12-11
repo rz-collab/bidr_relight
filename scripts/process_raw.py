@@ -7,7 +7,7 @@ import numpy as np
 
 def process_raw_into_linear(dir):
     """Process RAW images and store them as 16-bit TIFF."""
-    raw_formats = ["cr2", "dng"]
+    raw_formats = ["cr2", "dng", "CR2", "DNG"]
     for raw_format in raw_formats:
         imgs = list(Path(dir).glob(f"*.{raw_format}"))
         print(f"Found {len(imgs)} {raw_format} images in {dir}")
@@ -19,7 +19,7 @@ def process_raw_into_linear(dir):
                 img_linear = raw.postprocess(
                     output_color=rawpy.ColorSpace.raw,
                     output_bps=16,
-                    no_auto_bright=True,
+                    no_auto_bright=False,
                     no_auto_scale=False,
                     use_camera_wb=False,
                     use_auto_wb=False,

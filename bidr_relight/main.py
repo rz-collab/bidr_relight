@@ -54,6 +54,8 @@ def relight_content_image(
     rot_angle=None,
     always_use_global_illum_norm=True,
     target_vector=None,
+    content_roi=None,
+    style_roi=None,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -76,7 +78,6 @@ def relight_content_image(
         as model alone consumes >25GB.
     bin_radius: float
         pixels are clustered into bins of `bin_radius` size in log chroma plane.
-
     shading_only : bool, default False
         If True, only compress along the ISD without changing illuminant color.
     compression_factor : float, default 0.7
@@ -89,14 +90,23 @@ def relight_content_image(
 
     # --- 1. Load and preprocess images ---
     img_paths = [content_path, style_path]
+    imgs_roi = [content_roi, style_roi]
     imgs = []
     imgs_bit_depth = []
     log_imgs = []
     log_norm_imgs = []
+    imgs_roi_color = []  # unnormalized linear rgb color
 
     for i in range(len(img_paths)):
         img = imread(img_paths[i])
         img_bit_depth = np.iinfo(img.dtype).bits
+
+        if imgs_roi[i] is not None:
+            # Extract ROI and compute its average linear RGB.
+            y, x, h, w = imgs_roi[i]
+            roi = img[y : y + h, x : x + w]
+            roi_color = np.mean(roi.reshape(-1, 3), axis=0)
+            imgs_roi_color.append(roi_color)
 
         if i == CONTENT:
             img = resize_with_same_aspect(img, scale=resize_scale)
@@ -223,10 +233,8 @@ def relight_content_image(
     # Modes are defined as those histogram bins with relatively high counts.
     # The count threshold is dynamically set to 30% of max count.
     count_threshold = 0.3 * bin_counts.max()
-    mode_counts = bin_counts[bin_counts > count_threshold]
+    # mode_counts = bin_counts[bin_counts > count_threshold]
     mode_x = bin_x[bin_counts > count_threshold]
-
-    print(mode_counts, mode_x)
 
     # Use the rightmost mode as the illum vector norm.
     illum_vector_norm = mode_x[-1]
@@ -236,14 +244,9 @@ def relight_content_image(
     # Identify clusters with only lit or only shaded pixels and estimate missing points.
     # First, compute the global range (95th - 5th percentile) for the whole image
     global_signed_dists = signed_dist_map.ravel()
-    global_p20 = np.percentile(global_signed_dists, 20)
     global_p95 = np.percentile(global_signed_dists, 95)
-    global_range = np.percentile(global_signed_dists, 95) - np.percentile(
-        global_signed_dists, 5
-    )
     global_p5 = np.percentile(global_signed_dists, 5)
 
-    print(f"{global_range=}")
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
     bright_points = []
@@ -252,7 +255,7 @@ def relight_content_image(
     for bin_idx, bin_mask in enumerate(bin_masks):
         bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)
         bin_isd = bin_isd / np.linalg.norm(bin_isd)
-        bin_chroma = log_chroma_content[bin_mask].mean(axis=0)
+        # bin_chroma = log_chroma_content[bin_mask].mean(axis=0)
 
         length = lengths[bin_idx]
         signed_dists_bin = signed_dist_map[bin_mask].ravel()
@@ -264,7 +267,6 @@ def relight_content_image(
         p95_idx = np.argmin(np.abs(signed_dists_bin - p95))
         p5_point = log_imgs[CONTENT][tuple(bin_indices[p5_idx])]
         p95_point = log_imgs[CONTENT][tuple(bin_indices[p95_idx])]
-        print(f"{p5_point=}, {p95_point=}")
 
         if always_use_global_illum_norm:
             is_degenerate = True
@@ -273,28 +275,16 @@ def relight_content_image(
         if is_degenerate:
             if np.abs(global_p95 - p95) < np.abs(global_p5 - p5):
                 # Fully lit: use real p95 as bright, estimate dark
-                print("case1")
                 bright_point = p95_point
                 dark_point = bright_point - illum_vector_norm * bin_isd
-
-                print(f"{dark_point=}, {bright_point=}")
-
             else:
                 # Fully dark: use real p5 as dark, estimate bright
-
-                print("case1")
-                bright_point = p95_point
-                dark_point = bright_point - illum_vector_norm * bin_isd
-
-                # print("case2")
-                # dark_point = p5_point
-                # bright_point = dark_point + illum_vector_norm * bin_isd
+                dark_point = p5_point
+                bright_point = dark_point + illum_vector_norm * bin_isd
         else:
-            print("cas31")
             # Mixed: use real p5/p95 as endpoints
             # dark_point = bin_chroma + p5 * bin_isd
             # bright_point = bin_chroma + p95 * bin_isd
-
             dark_point = p5_point
             bright_point = p95_point
 
@@ -343,18 +333,18 @@ def relight_content_image(
         # Get cylinder's (dark,bright) pair
         cyl_dark_point = dark_points[cyl_idx]
         cyl_bright_point = bright_points[cyl_idx]
-        print(np.linalg.norm(cyl_bright_point - cyl_dark_point))
-        print(
-            np.acos(
-                np.dot(
-                    (cyl_bright_point - cyl_dark_point)
-                    / np.linalg.norm(cyl_bright_point - cyl_dark_point),
-                    global_content_isd,
-                )
-            )
-            * 180
-            / np.pi
-        )
+        # print(np.linalg.norm(cyl_bright_point - cyl_dark_point))
+        # print(
+        #     np.acos(
+        #         np.dot(
+        #             (cyl_bright_point - cyl_dark_point)
+        #             / np.linalg.norm(cyl_bright_point - cyl_dark_point),
+        #             global_content_isd,
+        #         )
+        #     )
+        #     * 180
+        #     / np.pi
+        # )
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -370,6 +360,36 @@ def relight_content_image(
     logger.info("Pivoted all pixels for each material cluster.")
 
     # --- 7. Optional global translation in log RGB for all pixels to change ambient illuminant.---
+
+    if content_roi is not None and style_roi is not None:
+        # Compute global translation to match their log RGB color.
+        log_transl = np.log(imgs_roi_color[STYLE] + 1e-8) - np.log(
+            imgs_roi_color[CONTENT] + 1e-8
+        )
+        logger.info(
+            f"Content's ROI color (linear) {imgs_roi_color[CONTENT]},  Style's ROI color (linear) {imgs_roi_color[STYLE]}"
+        )
+        logger.info(f"{log_transl=}")
+
+    # # Extract ROI and compute its average linear RGB.
+    # if content_roi is not None and style_roi is not None:
+    #     # Get tf content ROI log RGB.
+    #     content_roi = np.array(content_roi)
+    #     content_roi = (content_roi * resize_scale).astype(np.uint32)
+    #     y, x, h, w = content_roi
+    #     tf_roi_img = tf_log_content[y : y + h, x : x + w]
+    #     tf_roi_logrgb = np.mean(tf_roi_img.reshape(-1, 3), axis=0)
+
+    #     # Get style ROI log RGB
+    #     style_roi_logrgb = np.log(imgs_roi_color[STYLE] + 1e-8)
+
+    #     # Compute global translation to match their log RGB color.
+    #     log_transl = style_roi_logrgb - tf_roi_logrgb
+    #     logger.info(
+    #         f"Transformed Content's ROI color (linear) {tf_roi_logrgb},  Style's ROI color (linear) {imgs_roi_color[STYLE]}"
+    #     )
+    #     logger.info(f"{log_transl=}")
+
     if log_transl is not None:
         tf_log_content = tf_log_content + log_transl
 
@@ -490,3 +510,5 @@ def relight_content_image(
 
     plt.tight_layout()
     plt.show()
+
+    return tf_log_content

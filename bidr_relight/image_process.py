@@ -1,7 +1,14 @@
 import numpy as np
 import cv2
+from skimage.io import imread
+
 
 # All functions assumes HxWxC shape np array as image.
+def read_16bit_img(img_path):
+    img = imread(img_path)
+    img_bit_depth = np.iinfo(img.dtype).bits
+    img = img / (2**img_bit_depth - 1)
+    return img
 
 
 def linear_to_log(linear_img: np.ndarray) -> np.ndarray:
