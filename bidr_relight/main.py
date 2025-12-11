@@ -333,18 +333,6 @@ def relight_content_image(
         # Get cylinder's (dark,bright) pair
         cyl_dark_point = dark_points[cyl_idx]
         cyl_bright_point = bright_points[cyl_idx]
-        # print(np.linalg.norm(cyl_bright_point - cyl_dark_point))
-        # print(
-        #     np.acos(
-        #         np.dot(
-        #             (cyl_bright_point - cyl_dark_point)
-        #             / np.linalg.norm(cyl_bright_point - cyl_dark_point),
-        #             global_content_isd,
-        #         )
-        #     )
-        #     * 180
-        #     / np.pi
-        # )
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -369,26 +357,6 @@ def relight_content_image(
         logger.info(
             f"Content's ROI color (linear) {imgs_roi_color[CONTENT]},  Style's ROI color (linear) {imgs_roi_color[STYLE]}"
         )
-        logger.info(f"{log_transl=}")
-
-    # # Extract ROI and compute its average linear RGB.
-    # if content_roi is not None and style_roi is not None:
-    #     # Get tf content ROI log RGB.
-    #     content_roi = np.array(content_roi)
-    #     content_roi = (content_roi * resize_scale).astype(np.uint32)
-    #     y, x, h, w = content_roi
-    #     tf_roi_img = tf_log_content[y : y + h, x : x + w]
-    #     tf_roi_logrgb = np.mean(tf_roi_img.reshape(-1, 3), axis=0)
-
-    #     # Get style ROI log RGB
-    #     style_roi_logrgb = np.log(imgs_roi_color[STYLE] + 1e-8)
-
-    #     # Compute global translation to match their log RGB color.
-    #     log_transl = style_roi_logrgb - tf_roi_logrgb
-    #     logger.info(
-    #         f"Transformed Content's ROI color (linear) {tf_roi_logrgb},  Style's ROI color (linear) {imgs_roi_color[STYLE]}"
-    #     )
-    #     logger.info(f"{log_transl=}")
 
     if log_transl is not None:
         tf_log_content = tf_log_content + log_transl
