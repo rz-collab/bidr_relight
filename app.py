@@ -36,6 +36,49 @@ def visualize_isd_map(isd_map):
     return (isd_vis * 255).astype(np.uint8)
 
 
+def create_logrgb_comparison(content_log, style_log, tf_log, n_samples=5000):
+    """Create 3D log RGB comparison plots."""
+    fig = Figure(figsize=(20, 8))
+    
+    # Sample points
+    def sample_flat(log_img):
+        flat = log_img.reshape(-1, 3)
+        if len(flat) > n_samples:
+            idx = np.random.choice(len(flat), n_samples, replace=False)
+            return flat[idx]
+        return flat
+    
+    content_pts = sample_flat(content_log)
+    style_pts = sample_flat(style_log)
+    tf_pts = sample_flat(tf_log)
+    
+    # Plot 1: Original vs Transformed
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax1.scatter(content_pts[:, 0], content_pts[:, 1], content_pts[:, 2],
+                c='blue', s=1, alpha=0.3, label='Original')
+    ax1.scatter(tf_pts[:, 0], tf_pts[:, 1], tf_pts[:, 2],
+                c='green', s=1, alpha=0.3, label='Transformed')
+    ax1.set_xlabel('Log R')
+    ax1.set_ylabel('Log G')
+    ax1.set_zlabel('Log B')
+    ax1.set_title('Original vs Transformed')
+    ax1.legend()
+    
+    # Plot 2: Transformed vs Style
+    ax2 = fig.add_subplot(122, projection='3d')
+    ax2.scatter(tf_pts[:, 0], tf_pts[:, 1], tf_pts[:, 2],
+                c='green', s=1, alpha=0.3, label='Transformed')
+    ax2.scatter(style_pts[:, 0], style_pts[:, 1], style_pts[:, 2],
+                c='red', s=1, alpha=0.3, label='Style')
+    ax2.set_xlabel('Log R')
+    ax2.set_ylabel('Log G')
+    ax2.set_zlabel('Log B')
+    ax2.set_title('Transformed vs Style')
+    ax2.legend()
+    
+    return fig_to_pil(fig)
+
+
 def visualize_log_chromaticity(log_chroma, bit_depth):
     """Visualize log chromaticity as image with robust handling."""
     from src.image_util import normalized_linear_to_srgb
@@ -62,6 +105,31 @@ def visualize_log_chromaticity(log_chroma, bit_depth):
     img_srgb = normalized_linear_to_srgb(norm_linear)
     
     return img_srgb.astype(np.uint8)
+
+def create_pixel_color_grid(dark_points, bright_points, bit_depth):
+    """Create 2xK grid showing actual pixel colors."""
+    k = len(dark_points)
+    # Convert log to linear RGB
+    dark_linear = np.exp(dark_points)
+    bright_linear = np.exp(bright_points)
+    
+    # Normalize to [0,1]
+    dark_rgb = np.clip(dark_linear / (2**bit_depth - 1), 0, 1)
+    bright_rgb = np.clip(bright_linear / (2**bit_depth - 1), 0, 1)
+    
+    # Create 2xK image (each cell 50x50 pixels)
+    grid_size = 200
+    cell_height = 50
+    cell_size = grid_size // k
+    grid = np.zeros((2 * cell_height, k * cell_size, 3))
+    
+    for i in range(k):
+        # Dark point (top row)
+        grid[0:cell_height, i*cell_size:(i+1)*cell_size] = dark_rgb[i]
+        # Bright point (bottom row)
+        grid[cell_height:, i*cell_size:(i+1)*cell_size] = bright_rgb[i]
+    
+    return (grid * 255).astype(np.uint8)
 
 
 def create_scatter_plot(data, title, labels=None):
@@ -266,6 +334,12 @@ def step3_process(pipeline, always_use_global):
     ax.legend()
     
     illum_img = fig_to_pil(fig)
+
+    color_grid = create_pixel_color_grid(
+        pipeline.dark_points, 
+        pipeline.bright_points,
+        pipeline.content_data["bit_depth"]
+    ) 
     
     info = f"""✅ Step 3 Complete
 Illumination norm: {pipeline.illum_norm:.3f}
@@ -273,7 +347,7 @@ Number of clusters: {len(pipeline.dark_points)}
 Dark points shape: {pipeline.dark_points.shape}
 Bright points shape: {pipeline.bright_points.shape}"""
     
-    return pipeline, illum_img, info
+    return pipeline, illum_img, color_grid, info
 
 
 def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_g, log_transl_b):
@@ -303,25 +377,31 @@ def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_
     orig_img = normalized_linear_to_srgb(orig_norm).astype(np.uint8)
     
     # Create before/after comparison
-    fig = Figure(figsize=(16, 8))
+    fig = Figure(figsize=(48, 16))
     ax1 = fig.add_subplot(121)
     ax1.imshow(orig_img)
-    ax1.set_title('Original Content')
+    ax1.set_title('Original')
     ax1.axis('off')
-    
+
     ax2 = fig.add_subplot(122)
     ax2.imshow(tf_img)
-    ax2.set_title('Relit Content')
+    ax2.set_title('Transformed')
     ax2.axis('off')
-    
+
     comparison_img = fig_to_pil(fig)
-    
+
+    logrgb_comparison = create_logrgb_comparison(
+        pipeline.content_data["log_img"],
+        pipeline.style_data["log_img"],
+        pipeline.tf_log_content
+    )
+        
     info = f"""✅ Step 4 Complete
-Length scale: {length_scale}
-Rotation: {rot_percent}%
-Log translation: {log_transl}"""
+    Length scale: {length_scale}
+    Rotation: {rot_percent}%
+    Log translation: {log_transl}"""
     
-    return pipeline, tf_img, comparison_img, info
+    return pipeline, tf_img, comparison_img, logrgb_comparison, info
 
 
 # Create Gradio interface
@@ -427,11 +507,12 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
             
             with gr.Column():
                 illum_vis = gr.Image(label="Dark/Bright Points Visualization")
+                color_grid = gr.Image(label="Dark/Bright Point Colors")
         
         step3_btn.click(
             step3_process,
             inputs=[pipeline_state, always_use_global],
-            outputs=[pipeline_state, illum_vis, step3_info]
+            outputs=[pipeline_state, illum_vis, color_grid, step3_info]
         )
     
     with gr.Tab("✨ Step 4: Apply Relighting"):
@@ -459,12 +540,13 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
             with gr.Column():
                 final_output = gr.Image(label="Relit Image")
                 comparison_output = gr.Image(label="Before/After Comparison")
+                logrgb_comparison_output = gr.Image(label="Before/After LogRGB Comparison")
         
         step4_btn.click(
             step4_process,
             inputs=[pipeline_state, length_scale, rot_percent, 
                    log_transl_r, log_transl_g, log_transl_b],
-            outputs=[pipeline_state, final_output, comparison_output, step4_info]
+            outputs=[pipeline_state, final_output, comparison_output, logrgb_comparison_output, step4_info]
         )
     
     with gr.Tab("ℹ️ About"):
