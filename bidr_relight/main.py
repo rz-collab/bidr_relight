@@ -53,6 +53,7 @@ def relight_content_image(
     rot_percent=100.0,  # you either use rot_percent or rot_angle
     rot_angle=None,
     always_use_global_illum_norm=True,
+    target_vector=None,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -166,8 +167,10 @@ def relight_content_image(
     )
 
     # Perform clustering
+    # bla = np.exp(log_chroma_content) / (2 ** imgs_bit_depth[CONTENT] - 1)
+    bla = log_chroma_content
     bin_masks, bin_map = cluster_log_chromaticity(
-        log_chroma_content,
+        bla,
         method=clustering_method,
         bin_radius=bin_radius,
         n_clusters=n_clusters,
@@ -204,6 +207,11 @@ def relight_content_image(
         p5 = np.percentile(signed_dists, 5)
         p95 = np.percentile(signed_dists, 95)
 
+        # plt.figure()
+        # plt.hist(signed_dists)
+        # add percentiles lines
+        # for p in [p5, p95]:
+        #     plt.axvline(p, color="red", linestyle="--", linewidth=1)
         length = p95 - p5
         lengths.append(length)
 
@@ -218,6 +226,8 @@ def relight_content_image(
     mode_counts = bin_counts[bin_counts > count_threshold]
     mode_x = bin_x[bin_counts > count_threshold]
 
+    print(mode_counts, mode_x)
+
     # Use the rightmost mode as the illum vector norm.
     illum_vector_norm = mode_x[-1]
     logger.info(f"Estimated illumination vector norm {illum_vector_norm}")
@@ -227,14 +237,22 @@ def relight_content_image(
     # First, compute the global range (95th - 5th percentile) for the whole image
     global_signed_dists = signed_dist_map.ravel()
     global_p20 = np.percentile(global_signed_dists, 20)
+    global_p95 = np.percentile(global_signed_dists, 95)
+    global_range = np.percentile(global_signed_dists, 95) - np.percentile(
+        global_signed_dists, 5
+    )
+    global_p5 = np.percentile(global_signed_dists, 5)
 
+    print(f"{global_range=}")
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
     bright_points = []
+    global_content_isd = get_global_isd(isd_maps[CONTENT])
 
     for bin_idx, bin_mask in enumerate(bin_masks):
         bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)
         bin_isd = bin_isd / np.linalg.norm(bin_isd)
+        bin_chroma = log_chroma_content[bin_mask].mean(axis=0)
 
         length = lengths[bin_idx]
         signed_dists_bin = signed_dist_map[bin_mask].ravel()
@@ -246,23 +264,37 @@ def relight_content_image(
         p95_idx = np.argmin(np.abs(signed_dists_bin - p95))
         p5_point = log_imgs[CONTENT][tuple(bin_indices[p5_idx])]
         p95_point = log_imgs[CONTENT][tuple(bin_indices[p95_idx])]
+        print(f"{p5_point=}, {p95_point=}")
 
         if always_use_global_illum_norm:
             is_degenerate = True
         else:
             is_degenerate = length < 0.3 * illum_vector_norm
         if is_degenerate:
-            median_dist = np.median(signed_dists_bin)
-            if median_dist > global_p20:
+            if np.abs(global_p95 - p95) < np.abs(global_p5 - p5):
                 # Fully lit: use real p95 as bright, estimate dark
+                print("case1")
                 bright_point = p95_point
                 dark_point = bright_point - illum_vector_norm * bin_isd
+
+                print(f"{dark_point=}, {bright_point=}")
+
             else:
                 # Fully dark: use real p5 as dark, estimate bright
-                dark_point = p5_point
-                bright_point = dark_point + illum_vector_norm * bin_isd
+
+                print("case1")
+                bright_point = p95_point
+                dark_point = bright_point - illum_vector_norm * bin_isd
+
+                # print("case2")
+                # dark_point = p5_point
+                # bright_point = dark_point + illum_vector_norm * bin_isd
         else:
+            print("cas31")
             # Mixed: use real p5/p95 as endpoints
+            # dark_point = bin_chroma + p5 * bin_isd
+            # bright_point = bin_chroma + p95 * bin_isd
+
             dark_point = p5_point
             bright_point = p95_point
 
@@ -295,6 +327,13 @@ def relight_content_image(
         rot_percent=rot_percent,
         rot_angle=rot_angle,
     )
+    if target_vector is not None:
+        R = rotation_matrix_from_vectors(
+            global_content_isd,
+            target_vector,
+            rot_percent=rot_percent,
+            rot_angle=rot_angle,
+        )
 
     logger.info(
         f"Average Style ISD: {global_style_isd}. Average Content ISD: {global_content_isd}"
@@ -303,7 +342,19 @@ def relight_content_image(
     for cyl_idx, cyl_mask in enumerate(bin_masks):
         # Get cylinder's (dark,bright) pair
         cyl_dark_point = dark_points[cyl_idx]
-        # cyl_bright_point = bright_points[cyl_idx]
+        cyl_bright_point = bright_points[cyl_idx]
+        print(np.linalg.norm(cyl_bright_point - cyl_dark_point))
+        print(
+            np.acos(
+                np.dot(
+                    (cyl_bright_point - cyl_dark_point)
+                    / np.linalg.norm(cyl_bright_point - cyl_dark_point),
+                    global_content_isd,
+                )
+            )
+            * 180
+            / np.pi
+        )
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -401,8 +452,8 @@ def relight_content_image(
         log_style_img,
         sample_indices,
         bin_masks,
-        # dark_points,  # Uncomment if you want to see them plotted.
-        # bright_points,
+        dark_points,  # Uncomment if you want to see them plotted.
+        bright_points,
     )
     plot_content_log_chroma(
         axs,
@@ -431,6 +482,8 @@ def relight_content_image(
     else:
         elev = axs[log_rgb_plots_idx[-1]].elev
         azim = axs[log_rgb_plots_idx[-1]].azim
+        elev = 30
+        azim = -30
 
     for i in log_rgb_plots_idx:
         axs[i].view_init(elev, azim)

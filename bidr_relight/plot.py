@@ -326,8 +326,8 @@ def plot_img_rgb_logrgb(
                     log_cluster_dark_points[i][2],
                     c=[cmap(i)],
                     edgecolors="black",
-                    linewidth=0.5,
-                    s=20,
+                    linewidth=1.0,
+                    s=30,
                     alpha=1.0,
                 )
 
@@ -338,8 +338,8 @@ def plot_img_rgb_logrgb(
                     log_cluster_bright_points[i][2],
                     c=[cmap(i)],
                     edgecolors="red",
-                    linewidth=0.5,
-                    s=20,
+                    linewidth=1.0,
+                    s=30,
                     alpha=1.0,
                 )
 
