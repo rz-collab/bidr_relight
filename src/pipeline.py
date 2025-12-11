@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import logging
 
+from src.posterize_util import posterize_log_image
 from src.isd_estimation import process_image_pair
 from src.bidr_util import project_to_log_chromaticity_plane, get_global_isd
 from src.clustering import cluster_log_chromaticity
@@ -15,6 +16,7 @@ from src.plotting import (
     plot_transformed_img_logrgb,
     plot_log_chroma_plane_pre_clustering,
     plot_log_chroma_plane_post_clustering,
+    plot_log_chroma_plane_posterized,
     plot_cluster_spatial_distribution,
     calculate_shared_limits,
     plane_view_from_normal,
@@ -58,14 +60,15 @@ class RelightingPipeline:
         return self.content_data, self.style_data
     
     def step2_cluster_materials(self, clustering_method="greedy",
-                                bin_radius=1.0, n_clusters=4,
-                                plane_offset=None):
+                            bin_radius=1.0, n_clusters=4,
+                            plane_offset=None, posterize_levels=None):
         """Step 2: Project to log chromaticity and cluster materials."""
         logger.info("=== Step 2: Cluster Materials ===")
         
         if plane_offset is None:
             plane_offset = np.array([10.4, 10.4, 10.4])
         
+        # Always compute original log chromaticity (for transformation)
         self.log_chroma_content = project_to_log_chromaticity_plane(
             self.content_data["log_img"],
             self.content_data["isd_map"],
@@ -73,22 +76,59 @@ class RelightingPipeline:
             use_average_isd=False,
         )
         
+        # Optionally posterize for clustering
+        if posterize_levels is not None:
+            from src.posterize_util import posterize_log_image
+            logger.info(f"Posterizing with {posterize_levels} levels for clustering")
+            
+            # Posterize the log image before projection
+            posterized_log_img = posterize_log_image(
+                self.content_data["log_img"], 
+                levels=posterize_levels
+            )
+            
+            # Project posterized version
+            self.log_chroma_posterized = project_to_log_chromaticity_plane(
+                posterized_log_img,
+                self.content_data["isd_map"],
+                plane_offset=plane_offset,
+                use_average_isd=False,
+            )
+            
+            # Use posterized for clustering
+            clustering_input = self.log_chroma_posterized
+            
+            # Plot posterized version
+            from src.plotting import plot_log_chroma_plane_posterized
+            plot_log_chroma_plane_posterized(
+                self.log_chroma_content,
+                self.log_chroma_posterized,
+                self.content_data["isd_map"],
+                self.content_data["img"],
+                self.content_data["bit_depth"],
+                posterize_levels,
+            )
+        else:
+            self.log_chroma_posterized = None
+            clustering_input = self.log_chroma_content
+        
         plot_log_chroma_plane_pre_clustering(
-            self.log_chroma_content,
+            clustering_input,
             self.content_data["isd_map"],
             self.content_data["img"],
             self.content_data["bit_depth"],
         )
         
+        # Cluster using posterized (if enabled) or original
         self.bin_masks, self.bin_map = cluster_log_chromaticity(
-            self.log_chroma_content,
+            clustering_input,
             method=clustering_method,
             bin_radius=bin_radius,
             n_clusters=n_clusters,
         )
         
         plot_log_chroma_plane_post_clustering(
-            self.log_chroma_content,
+            clustering_input,
             self.content_data["isd_map"],
             self.bin_masks,
             bin_radius if clustering_method == "greedy" else None,

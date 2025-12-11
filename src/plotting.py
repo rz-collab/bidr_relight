@@ -333,6 +333,84 @@ def plot_cluster_spatial_distribution(bin_masks, content_img, content_bit_depth)
     plt.show()
 
 
+def plot_log_chroma_plane_posterized(log_chroma_original, log_chroma_posterized, 
+                                     isd_map, content_img, content_bit_depth, levels):
+    """Compare original vs posterized on 2D chromaticity plane."""
+    H, W, _ = log_chroma_original.shape
+    
+    # Sample
+    num_samples = 100000
+    orig_flat = log_chroma_original.reshape(H * W, 3)
+    post_flat = log_chroma_posterized.reshape(H * W, 3)
+    color_flat = content_img.reshape(H * W, 3)
+    
+    if len(orig_flat) > num_samples:
+        indices = np.random.choice(len(orig_flat), num_samples, replace=False)
+        orig_sampled = orig_flat[indices]
+        post_sampled = post_flat[indices]
+        color_sampled = color_flat[indices]
+    else:
+        orig_sampled = orig_flat
+        post_sampled = post_flat
+        color_sampled = color_flat
+    
+    norm_colors = np.clip(color_sampled / (2**content_bit_depth - 1), 0, 1)
+    norm_colors = normalized_linear_to_srgb(norm_colors) / 255.0
+    
+    # Project to 2D
+    mean_isd = isd_map.reshape(H * W, 3).mean(axis=0)
+    mean_isd = mean_isd / np.linalg.norm(mean_isd)
+    
+    arbitrary = np.array([1.0, 0.0, 0.0]) if abs(mean_isd[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = arbitrary - np.dot(arbitrary, mean_isd) * mean_isd
+    u = u / np.linalg.norm(u)
+    v = np.cross(mean_isd, u)
+    
+    # Project both versions
+    orig_2d = np.zeros((len(orig_sampled), 2))
+    orig_2d[:, 0] = np.dot(orig_sampled, u)
+    orig_2d[:, 1] = np.dot(orig_sampled, v)
+    
+    post_2d = np.zeros((len(post_sampled), 2))
+    post_2d[:, 0] = np.dot(post_sampled, u)
+    post_2d[:, 1] = np.dot(post_sampled, v)
+    
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 7))
+    
+    # Original
+    ax1.scatter(orig_2d[:, 0], orig_2d[:, 1], c=norm_colors, s=3, alpha=0.5, rasterized=True)
+    ax1.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax1.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax1.set_title("Original", fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_aspect("equal", adjustable="box")
+    
+    # Posterized
+    ax2.scatter(post_2d[:, 0], post_2d[:, 1], c=norm_colors, s=3, alpha=0.5, rasterized=True)
+    ax2.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax2.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax2.set_title(f"Posterized ({levels} levels)", fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_aspect("equal", adjustable="box")
+    
+    # Overlay comparison
+    ax3.scatter(orig_2d[:, 0], orig_2d[:, 1], c='blue', s=2, alpha=0.3, 
+               label='Original', rasterized=True)
+    ax3.scatter(post_2d[:, 0], post_2d[:, 1], c='red', s=2, alpha=0.3, 
+               label='Posterized', rasterized=True)
+    ax3.set_xlabel("Chromaticity Dimension 1", fontsize=12)
+    ax3.set_ylabel("Chromaticity Dimension 2", fontsize=12)
+    ax3.set_title("Overlay Comparison", fontsize=14)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    ax3.set_aspect("equal", adjustable="box")
+    
+    fig.suptitle(f"Effect of Posterization on Log Chromaticity Plane", 
+                 fontsize=16, y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
 # ============================================================================
 # ISD Visualization
 # ============================================================================
@@ -546,3 +624,4 @@ def _plot_clusters(ax, log_content_sampled, bin_masks, dark_points, bright_point
     ax.set_ylabel("log(Green)", fontsize=10)
     ax.set_zlabel("log(Blue)", fontsize=10)
     ax.set_title("Content Log-RGB Clustered", fontsize=12)
+

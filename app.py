@@ -1,4 +1,8 @@
-"""Interactive Gradio demo for step-by-step relighting pipeline."""
+"""Interactive Gradio demo for step-by-step relighting pipeline.
+
+Dependencies:
+    pip install gradio numpy matplotlib pillow imageio
+"""
 import gradio as gr
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,11 +37,31 @@ def visualize_isd_map(isd_map):
 
 
 def visualize_log_chromaticity(log_chroma, bit_depth):
-    """Visualize log chromaticity as image."""
-    # Convert log chromaticity back to displayable image
-    log_chroma_img = np.exp(log_chroma)
-    log_chroma_img = np.clip(log_chroma_img / (2**bit_depth - 1), 0, 1)
-    return (log_chroma_img * 255).astype(np.uint8)
+    """Visualize log chromaticity as image with robust handling."""
+    from src.image_util import normalized_linear_to_srgb
+    
+    # Convert log chromaticity to linear
+    linear_chroma = np.exp(log_chroma).astype(np.float32)
+    
+    # Check for extreme values
+    print(f"  Visualizing log chroma: linear range [{linear_chroma.min():.2f}, {linear_chroma.max():.2f}]")
+    
+    # Normalize robustly - use percentile clipping to handle outliers
+    p_low, p_high = np.percentile(linear_chroma, [1, 99])
+    print(f"  Using percentile range: [{p_low:.2f}, {p_high:.2f}]")
+    
+    # Clip and normalize
+    linear_clipped = np.clip(linear_chroma, p_low, p_high)
+    if p_high > p_low:
+        norm_linear = (linear_clipped - p_low) / (p_high - p_low)
+    else:
+        # Fallback if image is uniform
+        norm_linear = np.clip(linear_chroma / (2**bit_depth - 1), 0.0, 1.0)
+    
+    # Convert to sRGB for proper display
+    img_srgb = normalized_linear_to_srgb(norm_linear)
+    
+    return img_srgb.astype(np.uint8)
 
 
 def create_scatter_plot(data, title, labels=None):
@@ -70,58 +94,107 @@ def step1_process(content_img, style_img, model_type, resize_scale):
     
     from src.bidr_util import project_to_log_chromaticity_plane
     
+    print("=" * 60)
+    print(f"Step 1: Processing {content_img}")
+    
     pipeline = RelightingPipeline()
     
-    # Save uploaded images temporarily
-    content_path = "/tmp/content.png"
-    style_path = "/tmp/style.png"
-    Image.fromarray(content_img).save(content_path)
-    Image.fromarray(style_img).save(style_path)
-    
-    # Run step 1
+    # Pass filepath directly - pipeline now handles loading properly
     pipeline.step1_load_and_estimate_isd(
-        content_path, style_path, model_type, "./weights/UNET_run_x10_01_last_model.pth", resize_scale)
+        content_img, style_img, model_type, 
+        "./weights/UNET_run_x10_01_last_model.pth", resize_scale)
+    
+    # Check what was loaded
+    actual_bitdepth = pipeline.content_data["bit_depth"]
+    actual_dtype = pipeline.content_data["img"].dtype
+    
+    print(f"Pipeline result: bit_depth={actual_bitdepth}, dtype={actual_dtype}")
     
     # Visualize ISD maps
     content_isd_vis = visualize_isd_map(pipeline.content_data["isd_map"])
     style_isd_vis = visualize_isd_map(pipeline.style_data["isd_map"])
     
+    # Compute adaptive plane offset based on image content
+    log_img = pipeline.content_data["log_img"]
+    
+    # Use median of log values as offset (robust to outliers)
+    median_log = np.median(log_img, axis=(0, 1))
+    plane_offset = median_log
+    
+    print(f"Adaptive plane_offset: {plane_offset}")
+    print(f"Log RGB range: [{log_img.min():.2f}, {log_img.max():.2f}]")
+    print("=" * 60)
+    
     # Compute preliminary log chromaticity for preview
     log_chroma_preview = project_to_log_chromaticity_plane(
         pipeline.content_data["log_img"],
         pipeline.content_data["isd_map"],
-        plane_offset=np.array([10.4, 10.4, 10.4]),
-        use_average_isd=False,
+        plane_offset=plane_offset,
+        use_average_isd=True,
     )
+    
+    # Debug the log chromaticity range
+    print(f"Log chroma range: [{log_chroma_preview.min():.2f}, {log_chroma_preview.max():.2f}]")
+    
     log_chroma_vis = visualize_log_chromaticity(
         log_chroma_preview,
-        16
+        pipeline.content_data["bit_depth"]
     )
     
     info = f"""✅ Step 1 Complete
 Content: {pipeline.content_data['img'].shape}
 Style: {pipeline.style_data['img'].shape}
+Content dtype: {pipeline.content_data['img'].dtype}
+Content Bit Depth: {pipeline.content_data['bit_depth']} (processing bit depth)
+Log RGB range: [{log_img.min():.2f}, {log_img.max():.2f}]
+Plane offset: [{plane_offset[0]:.2f}, {plane_offset[1]:.2f}, {plane_offset[2]:.2f}]
 Content ISD: {get_global_isd(pipeline.content_data['isd_map'])}
-Style ISD: {get_global_isd(pipeline.style_data['isd_map'])}"""
+Style ISD: {get_global_isd(pipeline.style_data['isd_map'])}
+
+Note: 8-bit images are auto-converted to 16-bit linear for processing."""
     
     return pipeline, content_isd_vis, style_isd_vis, log_chroma_vis, info
 
 
-def step2_process(pipeline, method, bin_radius, n_clusters):
+def step2_process(pipeline, method, bin_radius, n_clusters, posterize_levels):
     """Step 2: Cluster materials."""
     if pipeline is None:
-        return None, None, None, None, "Please complete Step 1 first"
+        return None, None, None, None, None, "Please complete Step 1 first"
     
-    pipeline.step2_cluster_materials(method, bin_radius, n_clusters)
+    # Convert posterize_levels: 0 means disabled
+    post_levels = None if posterize_levels == 0 else int(posterize_levels)
+    
+    pipeline.step2_cluster_materials(
+        method, bin_radius, n_clusters, posterize_levels=post_levels
+    )
     
     # Create figures and get them for conversion
     import matplotlib
-    matplotlib.use('Agg')  # Use non-interactive backend
+    matplotlib.use('Agg')
     
-    # Pre-clustering plot
+    posterize_img = None
+    if pipeline.log_chroma_posterized is not None:
+        # Create posterize comparison plot
+        from src.plotting import plot_log_chroma_plane_posterized
+        plt.figure(figsize=(24, 7))
+        plot_log_chroma_plane_posterized(
+            pipeline.log_chroma_content,
+            pipeline.log_chroma_posterized,
+            pipeline.content_data["isd_map"],
+            pipeline.content_data["img"],
+            pipeline.content_data["bit_depth"],
+            post_levels,
+        )
+        posterize_img = fig_to_pil(plt.gcf())
+    
+    # Pre-clustering plot (uses posterized if enabled)
+    clustering_input = (pipeline.log_chroma_posterized 
+                       if pipeline.log_chroma_posterized is not None 
+                       else pipeline.log_chroma_content)
+    
     plt.figure(figsize=(12, 8))
     plot_log_chroma_plane_pre_clustering(
-        pipeline.log_chroma_content,
+        clustering_input,
         pipeline.content_data["isd_map"],
         pipeline.content_data["img"],
         pipeline.content_data["bit_depth"],
@@ -131,7 +204,7 @@ def step2_process(pipeline, method, bin_radius, n_clusters):
     # Post-clustering plot
     plt.figure(figsize=(12, 8))
     plot_log_chroma_plane_post_clustering(
-        pipeline.log_chroma_content,
+        clustering_input,
         pipeline.content_data["isd_map"],
         pipeline.bin_masks,
         bin_radius if method == "greedy" else None,
@@ -147,12 +220,13 @@ def step2_process(pipeline, method, bin_radius, n_clusters):
     )
     spatial_img = fig_to_pil(plt.gcf())
     
+    posterize_status = f"\nPosterize: {post_levels} levels" if post_levels else "\nPosterize: Disabled"
     info = f"""✅ Step 2 Complete
 Method: {method}
 Number of clusters: {len(pipeline.bin_masks)}
-Bin radius: {bin_radius if method == 'greedy' else 'N/A'}"""
+Bin radius: {bin_radius if method == 'greedy' else 'N/A'}{posterize_status}"""
     
-    return pipeline, pre_cluster_img, post_cluster_img, spatial_img, info
+    return pipeline, posterize_img, pre_cluster_img, post_cluster_img, spatial_img, info
 
 def step3_process(pipeline, always_use_global):
     """Step 3: Estimate illumination."""
@@ -216,14 +290,17 @@ def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_
     # Run step 4
     pipeline.step4_apply_relighting(length_scale, log_transl, rot_percent, None)
     
-    # Convert back to displayable image
-    tf_img = np.exp(pipeline.tf_log_content)
-    tf_img = np.clip(tf_img / (2**pipeline.content_data["bit_depth"] - 1), 0, 1)
-    tf_img = (tf_img * 255).astype(np.uint8)
+    # Convert to sRGB for display
+    from src.image_util import normalized_linear_to_srgb
     
-    # Original for comparison
-    orig_img = pipeline.content_data["img"]
-    orig_img = (orig_img / (2**pipeline.content_data["bit_depth"] - 1) * 255).astype(np.uint8)
+    # Transform
+    tf_linear = np.exp(pipeline.tf_log_content)
+    tf_norm = np.clip(tf_linear / (2**pipeline.content_data["bit_depth"] - 1), 0, 1)
+    tf_img = normalized_linear_to_srgb(tf_norm).astype(np.uint8)
+    
+    # Original
+    orig_norm = np.clip(pipeline.content_data["img"] / (2**pipeline.content_data["bit_depth"] - 1), 0, 1)
+    orig_img = normalized_linear_to_srgb(orig_norm).astype(np.uint8)
     
     # Create before/after comparison
     fig = Figure(figsize=(16, 8))
@@ -250,7 +327,14 @@ Log translation: {log_transl}"""
 # Create Gradio interface
 with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
     gr.Markdown("# 🎨 Interactive Relighting Pipeline")
-    gr.Markdown("Process images step-by-step with full control over parameters")
+    gr.Markdown("""
+    Process images step-by-step with full control over parameters
+    
+    **📝 Note**: 
+    - **Best**: 16-bit linear images (RAW/TIFF) for full dynamic range
+    - **OK**: 8-bit images (JPEG/PNG) - automatically converted to linear
+    - 8-bit images have limited shadow detail and may produce less accurate results
+    """)
     
     # State to hold pipeline between steps
     pipeline_state = gr.State(None)
@@ -260,8 +344,8 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
         
         with gr.Row():
             with gr.Column():
-                content_input = gr.Image(label="Content Image", type="numpy")
-                style_input = gr.Image(label="Style Image", type="numpy")
+                content_input = gr.Image(label="Content Image (16-bit TIFF preferred)", type="filepath")
+                style_input = gr.Image(label="Style Image (16-bit TIFF preferred)", type="filepath")
                 
                 with gr.Row():
                     model_type = gr.Dropdown(
@@ -277,10 +361,10 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
                 step1_btn = gr.Button("▶️ Run Step 1", variant="primary")
             
             with gr.Column():
-                step1_info = gr.Textbox(label="Status", lines=6)
+                step1_info = gr.Textbox(label="Status", lines=8)
                 content_isd_output = gr.Image(label="Content ISD Map")
                 style_isd_output = gr.Image(label="Style ISD Map")
-                log_chroma_preview = gr.Image(label="Log Chromaticity Preview")
+                log_chroma_preview = gr.Image(label="Log Chromaticity Preview (contrast enhanced)")
         
         step1_btn.click(
             step1_process,
@@ -307,19 +391,24 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
                     2, 10, value=4, step=1,
                     label="Number of Clusters"
                 )
+                posterize_levels = gr.Slider(
+                    0, 32, value=0, step=1,
+                    label="Posterize Levels (0=disabled, helps clustering)"
+                )
                 
                 step2_btn = gr.Button("▶️ Run Step 2", variant="primary")
-                step2_info = gr.Textbox(label="Status", lines=4)
+                step2_info = gr.Textbox(label="Status", lines=5)
             
             with gr.Column():
+                posterize_comparison = gr.Image(label="Posterization Effect (if enabled)")
                 pre_cluster_img = gr.Image(label="Before Clustering")
                 post_cluster_img = gr.Image(label="After Clustering")
                 spatial_dist_img = gr.Image(label="Spatial Distribution")
         
         step2_btn.click(
             step2_process,
-            inputs=[pipeline_state, clustering_method, bin_radius, n_clusters],
-            outputs=[pipeline_state, pre_cluster_img, post_cluster_img, 
+            inputs=[pipeline_state, clustering_method, bin_radius, n_clusters, posterize_levels],
+            outputs=[pipeline_state, posterize_comparison, pre_cluster_img, post_cluster_img, 
                     spatial_dist_img, step2_info]
         )
     
@@ -382,21 +471,34 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
         gr.Markdown("""
         ## How to Use This Pipeline
         
+        ### 📸 Image Requirements
+        
+        **Supported Formats:**
+        - ✅ **Best**: 16-bit linear TIFF/PNG/DNG (full dynamic range)
+        - ✅ **OK**: 8-bit JPEG/PNG (auto-converted from sRGB to linear)
+        - ⚠️ RAW files (.CR2, .NEF, .ARW) are supported but require rawpy library
+        
+        **What happens with 8-bit images:**
+        - Automatically converted from sRGB gamma to linear
+        - Upscaled to 16-bit for processing
+        - Results may have limited shadow detail due to original 8-bit quantization
+        
+        **For best results:**
+        - Use 16-bit TIFF files exported from RAW
+        - Preserve linear color space (no gamma correction)
+        - Maintain full dynamic range (don't clip highlights/shadows)
+        
         ### Step 1: Load & Estimate ISD
-        - Upload your content and style images
-        - The ISD (Illumination Spectral Direction) maps show the estimated lighting direction
-        - Choose model type and resize scale for processing
-        - **Device**: Select computation device
-          - `auto`: Automatically selects MPS (Apple Silicon) > CUDA (NVIDIA) > CPU
-          - `mps`: Force Apple Silicon GPU (M1/M2/M3)
-          - `cuda`: Force NVIDIA GPU
-          - `cpu`: Force CPU (slower but always available)
+        - Upload your content and style images (any format)
+        - Check console output to see detected bit depth
+        - The ISD (Illumination Spectral Direction) maps show estimated lighting direction
+        - 8-bit images will show "Converting 8-bit sRGB to 16-bit linear" in console
         
         ### Step 2: Cluster Materials
         - Segment the image into different material regions
         - **Greedy**: Bins pixels in log-chromaticity space by radius
         - **K-means**: Clusters pixels into fixed number of groups
-        - Visualizations show how pixels are grouped
+        - **Posterize**: Quantize colors before clustering (optional, helps with noisy images)
         
         ### Step 3: Estimate Illumination
         - Finds the global illumination vector
@@ -405,14 +507,16 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
         
         ### Step 4: Apply Relighting
         - Transfer lighting from style to content
-        - **Length Scale**: Compress/expand the lighting range
+        - **Length Scale**: Compress/expand the lighting range (0.5 = darker, 1.5 = brighter)
         - **Rotation**: How much to rotate toward style lighting (0-100%)
         - **Translation**: Shift colors in log RGB space
         
         ## Tips
+        - Check the console output for diagnostic info about image loading
         - You can rerun any step with different parameters
         - Changes in early steps require rerunning later steps
-        - Check visualizations at each step to ensure quality
+        - Try both 8-bit and 16-bit images to see the quality difference
+        - For production work, always use 16-bit linear images
         """)
 
 if __name__ == "__main__":

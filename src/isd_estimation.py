@@ -1,7 +1,7 @@
 """ISD (Illumination Spectral Direction) estimation module."""
 import numpy as np
 import torch
-from skimage.io import imread
+import imageio.v3 as iio
 import logging
 
 from src.image_util import resize_with_same_aspect, linear_to_log
@@ -25,24 +25,60 @@ def get_device():
     return device
 
 
-def load_and_preprocess_image(img_path, resize_scale=1.0):
-    """Load image and convert to log space.
-    
+def load_and_preprocess_image(img_input, resize_scale=1.0):
+    """Load image (from path) or accept numpy array and convert to log space.
+
+    img_input: either a file path (str) or a numpy array (H,W,3).
     Returns:
-        img: Original image (H, W, 3)
+        img: Original image (H, W, 3) as numpy array (uint8/uint16)
         bit_depth: Bit depth of original image
         log_img: Log RGB image
         log_norm_img: Log RGB normalized to [0,1]
     """
-    img = imread(img_path)
-    bit_depth = np.iinfo(img.dtype).bits
+    # If a numpy array was passed directly, use it
+    if isinstance(img_input, np.ndarray):
+        img = img_input.copy()
+        # Determine bit depth from dtype
+        if np.issubdtype(img.dtype, np.integer):
+            bit_depth = np.iinfo(img.dtype).bits
+        else:
+            # Float arrays - assume already in [0, 255] range for 8-bit
+            bit_depth = 8
+            if img.max() <= 1.0:  # Normalized floats
+                img = np.clip(img * 255, 0, 255).astype(np.uint8)
+            else:
+                img = img.astype(np.uint8)
+    else:
+        # Load from filepath using imageio (preserves bit depth better than skimage)
+        img = iio.imread(img_input)
+        
+        # Handle different dtypes
+        if np.issubdtype(img.dtype, np.integer):
+            bit_depth = np.iinfo(img.dtype).bits
+        elif img.dtype == np.float32 or img.dtype == np.float64:
+            # Some formats store as float - check range
+            if img.max() <= 1.0:
+                # Normalized floats, scale to 16-bit
+                img = (img * 65535).astype(np.uint16)
+                bit_depth = 16
+            else:
+                # Assume 8-bit range
+                img = img.astype(np.uint8)
+                bit_depth = 8
+        else:
+            logger.warning(f"Unexpected dtype {img.dtype}, defaulting to 8-bit")
+            img = img.astype(np.uint8)
+            bit_depth = 8
+    
+    logger.info(f"Loaded image: shape={img.shape}, dtype={img.dtype}, bit_depth={bit_depth}, range=[{img.min()}, {img.max()}]")
+    
     img = resize_with_same_aspect(img, scale=resize_scale)
     img = img[:, :, :3]  # Drop alpha if present
-    
+
     log_img = linear_to_log(img)
     log_norm_img = log_img / np.log(2**bit_depth - 1)
     log_norm_img = log_norm_img.astype(np.float32)
-    
+
     return img, bit_depth, log_img, log_norm_img
 
 
@@ -96,7 +132,7 @@ def estimate_isd_map(log_norm_img, model, device):
     log_norm_img_tensor = log_norm_img_tensor.to(device)
     
     # Run model
-    with torch.no_grad():  # Added no_grad for efficiency
+    with torch.no_grad():
         isd_map = model(log_norm_img_tensor)
     
     # Convert back to numpy
@@ -116,8 +152,8 @@ def process_image_pair(content_path, style_path, model_type="mock",
     """Process content and style images through ISD estimation.
     
     Args:
-        content_path: Path to content image
-        style_path: Path to style image
+        content_path: Path to content image or numpy array
+        style_path: Path to style image or numpy array
         model_type: "unet", "vit", or "mock"
         model_path: Path to model checkpoint
         resize_scale: Scale factor for resizing
