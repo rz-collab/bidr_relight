@@ -12,6 +12,7 @@ from src.clustering import cluster_log_chromaticity
 from src.image_util import (
     resize_with_same_aspect,
     linear_to_log,
+    resize,
 )
 from src.bidr_util import (
     project_to_log_chromaticity_plane,
@@ -39,20 +40,20 @@ def relight_content_image(
     content_path,
     style_path,
     isd_model,
-    isd_model_path,
     output_path,
     resize_scale=1 / 4,
     clustering_method="greedy",
     bin_radius=1.0,
     n_clusters=4,
-    shading_only=False,
-    compression_factor=0.7,
     view_isd=False,
     length_scale=1.0,
     log_transl=None,
     rot_percent=100.0,  # you either use rot_percent or rot_angle
     rot_angle=None,
     always_use_global_illum_norm=True,
+    target_vector=None,
+    content_roi=None,
+    style_roi=None,
 ):
     """
     Vectorized relighting pipeline using ISDs and optional illuminant transfer.
@@ -75,7 +76,6 @@ def relight_content_image(
         as model alone consumes >25GB.
     bin_radius: float
         pixels are clustered into bins of `bin_radius` size in log chroma plane.
-
     shading_only : bool, default False
         If True, only compress along the ISD without changing illuminant color.
     compression_factor : float, default 0.7
@@ -83,34 +83,35 @@ def relight_content_image(
     """
     CONTENT = 0
     STYLE = 1
-    if isd_model == "unet":
-        model = ResNet50UNet(
-            in_channels=3,
-            out_channels=3,
-            pretrained=True,
-            checkpoint=isd_model_path,
-            se_block=True,
-            dropout=0.0,
-        )
-
-    elif isd_model == "vit":
-        # TODO
-        pass
-    else:
-        model = MockISDModel()
+    model = isd_model
     model.eval()
 
     # --- 1. Load and preprocess images ---
     img_paths = [content_path, style_path]
+    imgs_roi = [content_roi, style_roi]
     imgs = []
     imgs_bit_depth = []
     log_imgs = []
     log_norm_imgs = []
+    imgs_roi_color = []  # unnormalized linear rgb color
 
     for i in range(len(img_paths)):
         img = imread(img_paths[i])
         img_bit_depth = np.iinfo(img.dtype).bits
-        img = resize_with_same_aspect(img, scale=resize_scale)
+
+        if imgs_roi[i] is not None:
+            # Extract ROI and compute its average linear RGB.
+            y, x, h, w = imgs_roi[i]
+            roi = img[y : y + h, x : x + w]
+            roi_color = np.mean(roi.reshape(-1, 3), axis=0)
+            imgs_roi_color.append(roi_color)
+
+        if i == CONTENT:
+            img = resize_with_same_aspect(img, scale=resize_scale)
+        else:
+            # Match style image size with content image.
+            H, W, _ = imgs[CONTENT].shape
+            img = resize(img, H, W)
 
         # Drop alpha if present
         img = img[:, :, :3]
@@ -155,8 +156,22 @@ def relight_content_image(
     )  # (H, W, 3)
 
     # Visualize before clustering
+    # For plotting RGB/logRGB, sample points:
+    num_samples = 100000
+    log_chroma_content_flat = log_chroma_content.reshape(-1, 3)
+    if num_samples > len(log_chroma_content_flat):
+        sample_indices = np.arange(len(log_chroma_content_flat))
+    else:
+        sample_indices = np.random.choice(
+            len(log_chroma_content_flat), num_samples, replace=False
+        )
+
     plot_log_chroma_plane_pre_clustering(
-        log_chroma_content, isd_maps[CONTENT], imgs[CONTENT], imgs_bit_depth[CONTENT]
+        log_chroma_content,
+        isd_maps[CONTENT],
+        imgs[CONTENT],
+        imgs_bit_depth[CONTENT],
+        sample_indices,
     )
 
     # Perform clustering
@@ -173,6 +188,7 @@ def relight_content_image(
         isd_maps[CONTENT],
         bin_masks,
         bin_radius if clustering_method == "greedy" else None,
+        sample_indices,
     )
     plot_cluster_spatial_distribution(bin_masks, imgs[CONTENT], imgs_bit_depth[CONTENT])
 
@@ -208,7 +224,6 @@ def relight_content_image(
     # Modes are defined as those histogram bins with relatively high counts.
     # The count threshold is dynamically set to 30% of max count.
     count_threshold = 0.3 * bin_counts.max()
-    mode_counts = bin_counts[bin_counts > count_threshold]
     mode_x = bin_x[bin_counts > count_threshold]
 
     # Use the rightmost mode as the illum vector norm.
@@ -219,14 +234,13 @@ def relight_content_image(
     # Identify clusters with only lit or only shaded pixels and estimate missing points.
     # First, compute the global range (95th - 5th percentile) for the whole image
     global_signed_dists = signed_dist_map.ravel()
-    global_p5 = np.percentile(global_signed_dists, 5)
     global_p95 = np.percentile(global_signed_dists, 95)
-    global_range = global_p95 - global_p5
-    global_median = np.percentile(global_signed_dists, 50)
+    global_p5 = np.percentile(global_signed_dists, 5)
 
     # For each cluster, determine if it's fully lit, fully shaded, or mixed
     dark_points = []
     bright_points = []
+    global_content_isd = get_global_isd(isd_maps[CONTENT])
 
     for bin_idx, bin_mask in enumerate(bin_masks):
         bin_isd = isd_maps[CONTENT][bin_mask].mean(axis=0)
@@ -246,10 +260,9 @@ def relight_content_image(
         if always_use_global_illum_norm:
             is_degenerate = True
         else:
-            is_degenerate = length < 0.3 * global_range
+            is_degenerate = length < 0.3 * illum_vector_norm
         if is_degenerate:
-            median_dist = np.median(signed_dists_bin)
-            if median_dist > global_median:
+            if np.abs(global_p95 - p95) < np.abs(global_p5 - p5):
                 # Fully lit: use real p95 as bright, estimate dark
                 bright_point = p95_point
                 dark_point = bright_point - illum_vector_norm * bin_isd
@@ -271,9 +284,6 @@ def relight_content_image(
         f"Estimated dark and bright points for {len(bin_masks)} material clusters"
     )
 
-    # print("Dark points: ", dark_points)
-    # print("Bright points: ", bright_points)
-
     # --- 6. Pivot each material around their dark point from content ISD to the average style ISD. ---
 
     # For each cylinder, we rotate its pixels about the cylinder's dark point from content ISD to style ISD.
@@ -291,6 +301,13 @@ def relight_content_image(
         rot_percent=rot_percent,
         rot_angle=rot_angle,
     )
+    if target_vector is not None:
+        R = rotation_matrix_from_vectors(
+            global_content_isd,
+            target_vector,
+            rot_percent=rot_percent,
+            rot_angle=rot_angle,
+        )
 
     logger.info(
         f"Average Style ISD: {global_style_isd}. Average Content ISD: {global_content_isd}"
@@ -299,7 +316,7 @@ def relight_content_image(
     for cyl_idx, cyl_mask in enumerate(bin_masks):
         # Get cylinder's (dark,bright) pair
         cyl_dark_point = dark_points[cyl_idx]
-        # cyl_bright_point = bright_points[cyl_idx]
+        cyl_bright_point = bright_points[cyl_idx]
 
         # Iterate through pixels that belongs to this cluster to apply the transformation
         cyl_px_idx = np.where(cyl_mask.ravel())[0]
@@ -315,6 +332,15 @@ def relight_content_image(
     logger.info("Pivoted all pixels for each material cluster.")
 
     # --- 7. Optional global translation in log RGB for all pixels to change ambient illuminant.---
+    if content_roi is not None and style_roi is not None:
+        # Compute global translation to match their log RGB color.
+        log_transl = np.log(imgs_roi_color[STYLE] + 1e-8) - np.log(
+            imgs_roi_color[CONTENT] + 1e-8
+        )
+        # logger.info(
+        #     f"Content's ROI color (linear) {imgs_roi_color[CONTENT]},  Style's ROI color (linear) {imgs_roi_color[STYLE]}"
+        # )
+
     if log_transl is not None:
         tf_log_content = tf_log_content + log_transl
 
@@ -327,7 +353,7 @@ def relight_content_image(
     norm_style_img = style_img / (2**style_bit_depth - 1)
 
     log_content_img, log_style_img = log_imgs
-    log_chroma_normal = get_global_isd(isd_maps[CONTENT])
+    log_chroma_normal = global_content_isd
     log_chroma_offset = plane_offset
 
     # Compute bounds/xyz limits for log rgb.
@@ -383,6 +409,7 @@ def relight_content_image(
         axs[i].set_zlim(z_limits)
 
     # Plots
+    # For plotting RGB/logRGB, sample points:
     plot_img_rgb_logrgb(
         axs,
         norm_content_img,
@@ -425,5 +452,4 @@ def relight_content_image(
     plt.tight_layout()
     plt.show()
 
-    # TODO (DEBUG): im only returning these for debug. remove later
-    return log_chroma_content, log_imgs, isd_maps, imgs
+    return np.exp(tf_log_content)
