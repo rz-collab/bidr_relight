@@ -10,13 +10,19 @@ logger = logging.getLogger(__name__)
 def apply_relighting(log_img, isd_map_content, isd_map_style, 
                      bin_masks, dark_points,
                      length_scale=1.0, log_transl=None,
-                     rot_percent=100.0, rot_angle=None):
+                     rot_percent=100.0, rot_angle=None, reverse_rotation=False):
     """Apply relighting transformation to content image."""
     global_style_isd = get_global_isd(isd_map_style)
     global_content_isd = get_global_isd(isd_map_content)
     
+    # Swap ISDs if reversing rotation (rotate away from style)
+    if reverse_rotation:
+        global_style_isd, global_content_isd = global_content_isd, global_style_isd
+        logger.info("Reverse rotation enabled - rotating AWAY from style ISD")
+    
     logger.info(f"Content ISD: {global_content_isd}")
-    logger.info(f"Style ISD: {global_style_isd}")
+    logger.info(f"Target ISD: {global_style_isd}")
+    logger.info(f"Rotation: {rot_percent}%")
     
     R = rotation_matrix_from_vectors(
         global_content_isd,

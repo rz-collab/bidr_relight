@@ -159,7 +159,7 @@ class RelightingPipeline:
         return self.illum_norm, self.dark_points, self.bright_points
     
     def step4_apply_relighting(self, length_scale=1.0, log_transl=None,
-                              rot_percent=100.0, rot_angle=None):
+                              rot_percent=100.0, rot_angle=None, reverse_rotation=False):
         """Step 4: Apply relighting transformation."""
         logger.info("=== Step 4: Apply Relighting ===")
         
@@ -173,6 +173,7 @@ class RelightingPipeline:
             log_transl=log_transl,
             rot_percent=rot_percent,
             rot_angle=rot_angle,
+            reverse_rotation=reverse_rotation,
         )
         
         return self.tf_log_content

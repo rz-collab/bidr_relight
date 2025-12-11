@@ -350,7 +350,7 @@ Bright points shape: {pipeline.bright_points.shape}"""
     return pipeline, illum_img, color_grid, info
 
 
-def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_g, log_transl_b):
+def step4_process(pipeline, length_scale, rot_percent, reverse_rotation, log_transl_r, log_transl_g, log_transl_b):
     """Step 4: Apply relighting."""
     if pipeline is None or pipeline.dark_points is None:
         return None, None, None, "Please complete Step 3 first"
@@ -362,7 +362,7 @@ def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_
         log_transl = None
     
     # Run step 4
-    pipeline.step4_apply_relighting(length_scale, log_transl, rot_percent, None)
+    pipeline.step4_apply_relighting(length_scale, log_transl, rot_percent, None, reverse_rotation)
     
     # Convert to sRGB for display
     from src.image_util import normalized_linear_to_srgb
@@ -398,7 +398,7 @@ def step4_process(pipeline, length_scale, rot_percent, log_transl_r, log_transl_
         
     info = f"""✅ Step 4 Complete
     Length scale: {length_scale}
-    Rotation: {rot_percent}%
+    Rotation: {rot_percent}% {'(REVERSED - away from style)' if reverse_rotation else '(toward style)'}
     Log translation: {log_transl}"""
     
     return pipeline, tf_img, comparison_img, logrgb_comparison, info
@@ -525,8 +525,12 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
                     label="Length Scale"
                 )
                 rot_percent = gr.Slider(
-                    0, 100, value=100, step=5,
-                    label="Rotation Percentage"
+                    0, 500, value=100, step=5,
+                    label="Rotation Percentage (100% = full rotation, >100% = over-rotate)"
+                )
+                reverse_rotation = gr.Checkbox(
+                    value=False,
+                    label="Reverse Rotation (rotate away from style ISD)"
                 )
                 
                 gr.Markdown("**Log RGB Translation (optional)**")
@@ -544,7 +548,7 @@ with gr.Blocks(title="Interactive Relighting Pipeline") as demo:
         
         step4_btn.click(
             step4_process,
-            inputs=[pipeline_state, length_scale, rot_percent, 
+            inputs=[pipeline_state, length_scale, rot_percent, reverse_rotation,
                    log_transl_r, log_transl_g, log_transl_b],
             outputs=[pipeline_state, final_output, comparison_output, logrgb_comparison_output, step4_info]
         )
