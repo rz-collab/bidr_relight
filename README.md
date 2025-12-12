@@ -9,7 +9,7 @@ Use any two images on the demo hosted on [Huggingface](https://huggingface.co/sp
 
 This pipeline transfers lighting from a **style image** to a **content image** using physics-based Illumination Spectral Direction (ISD). It works best with **16-bit linear images**, but also supports common 8-bit formats.
 
-## 📸 Image Requirements
+## Image Requirements
 
 **Best results (recommended):**
 
@@ -26,46 +26,14 @@ This pipeline transfers lighting from a **style image** to a **content image** u
 
 - Supported when using the `rawpy` library.
 
----
-
-## Pipeline Steps
-
-### 1. Load & Estimate ISD
-
-- Upload content and style images.
-- Console shows detected bit depth and any conversions.
-- ISD maps visualize the estimated illumination direction.
-
-### 2. Cluster Materials
-
-Segments the image into material regions. Available options:
-
-- **Greedy:** clusters by log-chromaticity radius
-- **K-means:** fixed number of clusters
-- **Posterize:** optional quantization to stabilize noisy images
-
-### 3. Estimate Illumination
-
-- Computes the global illumination vector.
-- Determines **dark (shadow)** and **bright (lit)** endpoints for each material cluster.
-- Defines the lighting range used during transfer.
-
-### 4. Apply Relighting
-
-Transfers lighting from the style image to the content image using:
-
-- **Length Scale** — adjusts light intensity (e.g., `0.5` = darker, `1.5` = brighter)
-- **Rotation** — blends toward style illumination (0–100%)
-- **Translation** — shifts colors in log-RGB space
-
----
-
 ## Tips
 
 - Always use **16-bit linear** images for high-quality results.
 - Check the console output for bit-depth and conversion diagnostics.
 - You can rerun any step; modifying earlier steps requires rerunning later ones.
 - Experiment with both 8-bit and 16-bit images to compare dynamic range.
+
+---
 
 # Local Usage
 
