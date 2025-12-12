@@ -1,3 +1,11 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains image utility functions for color space conversions and resizing.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
 import numpy as np
 import cv2
 
@@ -5,6 +13,15 @@ import cv2
 
 
 def linear_to_log(linear_img: np.ndarray) -> np.ndarray:
+    """
+    Converts a linear image to logarithmic space.
+
+    Args:
+        linear_img (np.ndarray): Input image in linear space (float32 or float64), with non-negative values.
+
+    Returns:
+        np.ndarray: Image converted to log space (float32), with zeros where input is zero or negative.
+    """
     log_img = np.zeros_like(linear_img, dtype=np.float32)
     log_img[linear_img > 0] = np.log(linear_img[linear_img > 0])
     assert np.min(log_img) >= 0 and np.max(log_img) <= 11.1
@@ -12,6 +29,15 @@ def linear_to_log(linear_img: np.ndarray) -> np.ndarray:
 
 
 def log_to_linear(log_img: np.ndarray) -> np.ndarray:
+    """
+    Converts a logarithmic image back to linear space.
+
+    Args:
+        log_img (np.ndarray): Input image in log space (float32 or float64), typically the output of linear_to_log.
+
+    Returns:
+        np.ndarray: Image converted back to linear space (float32).
+    """
     return np.exp(log_img).astype(np.float32)
 
 
@@ -58,6 +84,17 @@ def convert_16bit_to_8bit(img: np.ndarray) -> np.ndarray:
 
 
 def resize(img: np.ndarray, height: int, width: int) -> np.ndarray:
+    """
+    Resize an image to the specified height and width using area interpolation.
+
+    Args:
+        img (np.ndarray): Input image array (HxWxC or HxW).
+        height (int): Desired output height (pixels).
+        width (int): Desired output width (pixels).
+
+    Returns:
+        np.ndarray: Resized image with shape (height, width, C) or (height, width).
+    """
     return cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
 
 

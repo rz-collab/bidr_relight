@@ -1,3 +1,11 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains relighting transformation functions.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
 """Relighting transformation module."""
 import numpy as np
 import logging

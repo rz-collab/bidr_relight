@@ -1,3 +1,13 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file creates a UNet model using ResNet50 as the backbone for ISD estimation as 
+# seen done through Michael Massone's thesis work. 
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 import logging
 import torch
 import torch.nn as nn

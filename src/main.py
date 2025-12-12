@@ -1,3 +1,13 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains the main relighting pipeline and functions using ISD estimation and 
+# illumination transfer.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 import numpy as np
 import torch
 from skimage.io import imread, imsave

@@ -1,3 +1,12 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file creates a mock model for estimating the ISD of an image using a neural network.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 import torch
 import torch.nn as nn
 

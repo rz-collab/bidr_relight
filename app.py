@@ -1,3 +1,12 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains a interactive Gradio demo for the step-by-step relighting pipeline.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 """Interactive Gradio demo for step-by-step relighting pipeline.
 
 Dependencies:

@@ -1,3 +1,12 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains the ISD (Illumination Spectral Direction) estimation module.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 """ISD (Illumination Spectral Direction) estimation module."""
 import numpy as np
 import torch
@@ -12,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 def get_device():
-    """Get the best available device (MPS > CUDA > CPU)."""
+    """
+    Get the best available device for torch (MPS > CUDA > CPU).
+    Returns:
+        torch.device: The selected device.
+    """
     if torch.backends.mps.is_available():
         device = torch.device("mps")
         logger.info("Using MPS (Apple Silicon) device")
@@ -26,14 +39,16 @@ def get_device():
 
 
 def load_and_preprocess_image(img_input, resize_scale=1.0):
-    """Load image (from path) or accept numpy array and convert to log space.
-
-    img_input: either a file path (str) or a numpy array (H,W,3).
+    """
+    Load image (from path or numpy array), convert to log space, and normalize.
+    Args:
+        img_input (str or np.ndarray): File path or image array (H,W,3).
+        resize_scale (float): Scale factor for resizing.
     Returns:
-        img: Original image (H, W, 3) as numpy array (uint8/uint16)
-        bit_depth: Bit depth of original image
-        log_img: Log RGB image
-        log_norm_img: Log RGB normalized to [0,1]
+        img (np.ndarray): Original image (H, W, 3).
+        bit_depth (int): Bit depth of original image.
+        log_img (np.ndarray): Log RGB image.
+        log_norm_img (np.ndarray): Log RGB normalized to [0,1].
     """
     # If a numpy array was passed directly, use it
     if isinstance(img_input, np.ndarray):
@@ -83,12 +98,15 @@ def load_and_preprocess_image(img_input, resize_scale=1.0):
 
 
 def get_isd_model(model_type, model_path=None, device=None):
-    """Initialize ISD estimation model.
-    
+    """
+    Initialize ISD estimation model (mock, unet, or vit).
     Args:
-        model_type: "unet", "vit", or "mock"
-        model_path: Path to model checkpoint (for unet/vit)
-        device: torch.device or None (auto-detect if None)
+        model_type (str): "unet", "vit", or "mock".
+        model_path (str): Path to model checkpoint (for unet/vit).
+        device (torch.device or None): Device to use (auto-detect if None).
+    Returns:
+        model: Instantiated model.
+        device: torch.device used.
     """
     if device is None:
         device = get_device()
@@ -115,15 +133,14 @@ def get_isd_model(model_type, model_path=None, device=None):
 
 
 def estimate_isd_map(log_norm_img, model, device):
-    """Estimate ISD map for an image.
-    
+    """
+    Estimate ISD map for an image using the provided model.
     Args:
-        log_norm_img: Normalized log RGB image (H, W, 3)
-        model: ISD estimation model
-        device: torch.device to run inference on
-        
+        log_norm_img (np.ndarray): Normalized log RGB image (H, W, 3).
+        model: ISD estimation model.
+        device: torch.device to run inference on.
     Returns:
-        isd_map: Normalized ISD vectors (H, W, 3)
+        np.ndarray: Normalized ISD vectors (H, W, 3).
     """
     # Convert to tensor and move to device
     log_norm_img_tensor = (
@@ -149,25 +166,31 @@ def estimate_isd_map(log_norm_img, model, device):
 
 def process_image_pair(content_path, style_path, model_type="mock", 
                        model_path=None, resize_scale=1/4, device=None):
-    """Process content and style images through ISD estimation.
-    
-    Args:
-        content_path: Path to content image or numpy array
-        style_path: Path to style image or numpy array
-        model_type: "unet", "vit", or "mock"
-        model_path: Path to model checkpoint
-        resize_scale: Scale factor for resizing
-        device: torch.device or None (auto-detect if None)
     """
+    Process content and style images through ISD estimation pipeline.
+    Args:
+        content_path (str or np.ndarray): Path to content image or array.
+        style_path (str or np.ndarray): Path to style image or array.
+        model_type (str): "unet", "vit", or "mock".
+        model_path (str): Path to model checkpoint.
+        resize_scale (float): Scale factor for resizing.
+        device (torch.device or None): Device to use (auto-detect if None).
+    Returns:
+        dict: Results for content and style images, each with keys:
+            'img', 'bit_depth', 'log_img', 'log_norm_img', 'isd_map'.
+    """
+    # Initialize ISD model and device
     model, device = get_isd_model(model_type, model_path, device)
     
     results = {}
     for name, path in [("content", content_path), ("style", style_path)]:
+        # Load and preprocess image
         img, bit_depth, log_img, log_norm_img = load_and_preprocess_image(
             path, resize_scale
         )
+        # Estimate ISD map for image
         isd_map = estimate_isd_map(log_norm_img, model, device)
-        
+        # Store results
         results[name] = {
             "img": img,
             "bit_depth": bit_depth,

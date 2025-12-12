@@ -1,3 +1,12 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains posterization utilities for improved clustering.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 """Posterization utilities for improved clustering."""
 import numpy as np
 

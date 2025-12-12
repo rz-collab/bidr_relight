@@ -1,3 +1,13 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains clustering functions for pixels in log chromaticity space to 
+# help separate different material regions for relighting.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 import numpy as np
 import logging
 from sklearn.cluster import KMeans, AgglomerativeClustering

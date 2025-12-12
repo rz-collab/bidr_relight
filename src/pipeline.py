@@ -1,3 +1,12 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains a cleaner, modular, relighting pipeline building on the 
+# previous individual ISD estimation, illumination estimation, and relighting modules.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
 """Clean, modular relighting pipeline."""
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,9 +36,19 @@ logger = logging.getLogger(__name__)
 
 
 class RelightingPipeline:
-    """Modular relighting pipeline with step-by-step execution."""
+    """
+    Modular relighting pipeline with step-by-step execution.
+    Each step corresponds to a major stage in the relighting process:
+    1. Load images and estimate ISD
+    2. Cluster materials in log chromaticity
+    3. Estimate illumination and endpoints
+    4. Apply relighting transformation
+    """
     
     def __init__(self):
+        """
+        Initialize pipeline state variables for content/style images, clusters, illumination, and results.
+        """
         self.content_data = None
         self.style_data = None
         self.log_chroma_content = None
@@ -44,7 +63,17 @@ class RelightingPipeline:
     def step1_load_and_estimate_isd(self, content_path, style_path,
                                     model_type="mock", model_path=None,
                                     resize_scale=1/4):
-        """Step 1: Load images and estimate ISD maps."""
+        """
+        Step 1: Load content and style images and estimate their ISD maps.
+        Args:
+            content_path (str): Path to content image.
+            style_path (str): Path to style image.
+            model_type (str): ISD model type (mock/unet).
+            model_path (str): Path to ISD model weights.
+            resize_scale (float): Resize scale for images.
+        Returns:
+            tuple: (content_data, style_data) dictionaries.
+        """
         logger.info("=== Step 1: Load and Estimate ISD ===")
         
         results = process_image_pair(
@@ -62,11 +91,22 @@ class RelightingPipeline:
     def step2_cluster_materials(self, clustering_method="greedy",
                             bin_radius=1.0, n_clusters=4,
                             plane_offset=None, posterize_levels=None):
-        """Step 2: Project to log chromaticity and cluster materials."""
+        """
+        Step 2: Project to log chromaticity plane and cluster materials.
+        Optionally posterize before clustering for robustness.
+        Args:
+            clustering_method (str): Clustering method (e.g., 'greedy').
+            bin_radius (float): Bin radius for clustering.
+            n_clusters (int): Number of clusters.
+            plane_offset (np.ndarray or None): Offset for chromaticity plane.
+            posterize_levels (int or None): Posterization levels for clustering.
+        Returns:
+            list: List of cluster masks (bin_masks).
+        """
         logger.info("=== Step 2: Cluster Materials ===")
         
         if plane_offset is None:
-            plane_offset = np.array([10.4, 10.4, 10.4])
+            plane_offset = np.array([10.4, 10.4, 10.4])  # Default offset for chromaticity plane
         
         # Always compute original log chromaticity (for transformation)
         self.log_chroma_content = project_to_log_chromaticity_plane(
@@ -80,25 +120,21 @@ class RelightingPipeline:
         if posterize_levels is not None:
             from src.posterize_util import posterize_log_image
             logger.info(f"Posterizing with {posterize_levels} levels for clustering")
-            
             # Posterize the log image before projection
             posterized_log_img = posterize_log_image(
                 self.content_data["log_img"], 
                 levels=posterize_levels
             )
-            
-            # Project posterized version
+            # Project posterized version to chromaticity plane
             self.log_chroma_posterized = project_to_log_chromaticity_plane(
                 posterized_log_img,
                 self.content_data["isd_map"],
                 plane_offset=plane_offset,
                 use_average_isd=False,
             )
-            
             # Use posterized for clustering
             clustering_input = self.log_chroma_posterized
-            
-            # Plot posterized version
+            # Plot posterized version for visualization
             from src.plotting import plot_log_chroma_plane_posterized
             plot_log_chroma_plane_posterized(
                 self.log_chroma_content,
@@ -119,7 +155,7 @@ class RelightingPipeline:
             self.content_data["bit_depth"],
         )
         
-        # Cluster using posterized (if enabled) or original
+        # Cluster using posterized (if enabled) or original chromaticity
         self.bin_masks, self.bin_map = cluster_log_chromaticity(
             clustering_input,
             method=clustering_method,
@@ -144,7 +180,13 @@ class RelightingPipeline:
         return self.bin_masks
     
     def step3_estimate_illumination(self, always_use_global=True):
-        """Step 3: Estimate global illumination and dark/bright points."""
+        """
+        Step 3: Estimate global illumination vector and dark/bright endpoints for each cluster.
+        Args:
+            always_use_global (bool): If True, always use global statistics for endpoints.
+        Returns:
+            tuple: (illum_norm, dark_points, bright_points)
+        """
         logger.info("=== Step 3: Estimate Illumination ===")
         
         (self.illum_norm, self.dark_points, self.bright_points,
@@ -160,7 +202,17 @@ class RelightingPipeline:
     
     def step4_apply_relighting(self, length_scale=1.0, log_transl=None,
                               rot_percent=100.0, rot_angle=None, reverse_rotation=False):
-        """Step 4: Apply relighting transformation."""
+        """
+        Step 4: Apply relighting transformation to the content image using estimated ISDs and endpoints.
+        Args:
+            length_scale (float): Scale for illumination vector length.
+            log_transl (np.ndarray or None): Optional translation in log RGB.
+            rot_percent (float): Rotation percent for ISD alignment.
+            rot_angle (float or None): Optional explicit rotation angle.
+            reverse_rotation (bool): If True, reverse the rotation direction.
+        Returns:
+            np.ndarray: Transformed log content image.
+        """
         logger.info("=== Step 4: Apply Relighting ===")
         
         self.tf_log_content = apply_relighting(
@@ -179,7 +231,11 @@ class RelightingPipeline:
         return self.tf_log_content
     
     def visualize_results(self, view_isd=False):
-        """Create comprehensive visualization of all results."""
+        """
+        Create comprehensive visualization of all pipeline results, including images, clusters, and transformations.
+        Args:
+            view_isd (bool): If True, set 3D plot view to ISD plane.
+        """
         logger.info("=== Generating Visualizations ===")
         
         content_img = self.content_data["img"]
@@ -277,7 +333,29 @@ def relight_content_image(content_path, style_path,
                          length_scale=1.0, log_transl=None,
                          rot_percent=100.0, rot_angle=None,
                          always_use_global_illum_norm=True):
-    """Complete relighting pipeline - simplified interface."""
+    """
+    Complete relighting pipeline - simplified interface for running all steps.
+    Args:
+        content_path (str): Path to content image.
+        style_path (str): Path to style image.
+        isd_model (str): ISD model type (mock/unet).
+        isd_model_path (str): Path to ISD model weights.
+        output_path (str or None): Optional output path for saving results.
+        resize_scale (float): Resize scale for images.
+        clustering_method (str): Clustering method for materials.
+        bin_radius (float): Bin radius for clustering.
+        n_clusters (int): Number of clusters.
+        shading_only (bool): If True, only compress along ISD.
+        compression_factor (float): Compression factor for intensity.
+        view_isd (bool): If True, set 3D plot view to ISD plane.
+        length_scale (float): Scale for illumination vector length.
+        log_transl (np.ndarray or None): Optional translation in log RGB.
+        rot_percent (float): Rotation percent for ISD alignment.
+        rot_angle (float or None): Optional explicit rotation angle.
+        always_use_global_illum_norm (bool): If True, always use global statistics for endpoints.
+    Returns:
+        tuple: (log_chroma_content, [log_imgs], [isd_maps], [imgs])
+    """
     
     pipeline = RelightingPipeline()
     

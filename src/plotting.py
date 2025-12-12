@@ -1,3 +1,14 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains plotting functions for visualizing images, color spaces, ISD,
+# and clustering.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import hsv_to_rgb

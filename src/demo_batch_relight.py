@@ -1,6 +1,12 @@
-"""
-Batch relighting script: relights all content/style image pairs in folders or single images, saves outputs, and plots cluster endpoint colors.
-"""
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains a batch relighting script: relights all content/style image pairs
+# in folders or single images, saves outputs, and plots cluster endpoint colors.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
 import os
 import argparse
 import numpy as np
@@ -11,7 +17,14 @@ from src.image_util import normalized_linear_to_srgb, log_to_linear
 
 
 def plot_cluster_endpoints_linear(dark_points, bright_points, out_path=None):
-    """Plot the linear RGB colors of each cluster's dark and bright points."""
+    """
+    Plot the linear RGB colors of each cluster's dark and bright points as image patches.
+    Optionally saves the plot to a file if out_path is provided.
+    Args:
+        dark_points (list or np.ndarray): List/array of dark RGB points for each cluster.
+        bright_points (list or np.ndarray): List/array of bright RGB points for each cluster.
+        out_path (str, optional): Path to save the plot image. If None, does not save.
+    """
     n = len(dark_points)
     fig, ax = plt.subplots(1, n, figsize=(2*n, 2))
     if n == 1:
@@ -33,6 +46,15 @@ def plot_cluster_endpoints_linear(dark_points, bright_points, out_path=None):
 
 
 def relight_and_save(content_path, style_path, output_dir, args):
+    """
+    Run the relighting pipeline for a content/style image pair and save the results.
+    Saves both the relit image (linear and sRGB) and a plot of cluster endpoint colors.
+    Args:
+        content_path (str): Path to the content image.
+        style_path (str): Path to the style image.
+        output_dir (str): Directory to save output images.
+        args (argparse.Namespace): Parsed command-line arguments with pipeline options.
+    """
     pipeline = RelightingPipeline()
     pipeline.step1_load_and_estimate_isd(
         content_path, style_path, args.isd_model, args.isd_model_path, args.resize_scale
@@ -62,6 +84,10 @@ def relight_and_save(content_path, style_path, output_dir, args):
 
 
 def main():
+    """
+    Parse command-line arguments and run batch relighting for content/style images or folders.
+    Handles both single image pairs and folders of images, matching by filename.
+    """
     parser = argparse.ArgumentParser(description="Batch relighting for content/style images.")
     parser.add_argument('--content', type=str, required=True, help='Content image path or folder')
     parser.add_argument('--style', type=str, required=True, help='Style image path or folder')

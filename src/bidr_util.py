@@ -1,7 +1,15 @@
+# BIDR Relight
+# 12/11/25
+# CS7180 Advanced Perception
+# Contributors: Max Huber, Adharsh Kandula, Richard Zhao
+
+# This file contains utility functions for BIDR theory, such as moving along ISD, 
+# projection on log chromaticity plane, etc.
+# Several components were coded/modified with the help of GPT-5 and Claude Sonnet 4.5
+
+
 import numpy as np
 import cv2
-
-# This module contains all processing relevant to BIDR theory, such as moving along ISD, projection on log chromaticity plane, etc.
 
 
 def apply_isd_darkening_log(log_img, isd_map, strength=0.5):
